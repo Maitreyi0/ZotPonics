@@ -1,0 +1,3 @@
+# I2C Addresses
+- pH Sensor: 99
+- elec cond Sensor: 100

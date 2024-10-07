@@ -1,0 +1,199 @@
+*********************
+# was initially just going to store this as a list, but I think this makes more sense
+class AtlasI2C_SensorStatus():
+    # at the time of initialization, only the keyword attribute will be initialized, the other attributes will be initialized later on
+    def __init__(self, keyword):
+        self.keyword = keyword
+        self.latestReading = None
+        self.contPollingThreadActive = False # false initially
+        self.condThreadActive = False # false initially
+        self.condThreadDescription = "" # initially an empty string
+    
+    # accessor method for keyword
+    def getKeyword(self):
+        return self.keyword
+    
+    # accessor method for latest reading
+    def getLatestReading(self):
+        return self.latestReading
+    # setter method for latest reading
+    def setLatestReading(self, latestReading):
+        self.latestReading = latestReading
+    
+    # accessor method for continuous polling thread state
+    def getContPollingThreadState(self):
+        return self.contPollingThreadActive
+    # setter method for continuous polling thread state
+    def setContPollingThreadState(self, state : bool):
+        self.contPollingThreadActive = state
+            
+    # accessor method for conditional thread state
+    def getCondThreadState(self):
+        return self.condThreadActive
+    # setter method for conditional thread state
+    def setCondThreadState(self, state : bool):
+        self.condThreadActive = state
+            
+    # setter method for conditional thread description
+    def setCondThreadDescription(self, listCondThreadTuples : list):
+        """
+        NOTE: This method uses information from listCondThreadTuples to generate the description.
+        """
+        self.condThreadDescription = "" # start with this initially
+        
+        if len(listCondThreadTuples) >= 1:
+            for condThreadTuple in listCondThreadTuples:
+                condThreadDescriptionEntry = "\n"
+                comparator = condThreadTuple[0]
+                rightOperand = condThreadTuple[1]
+                callbackFunction = condThreadTuple[2]
+                # condThreadTuple[3] not in use
+                isPersistent = condThreadTuple[4]
+                alias = condThreadTuple[5]
+                condThreadDescriptionEntry += "("
+                condThreadDescriptionEntry += comparator
+                condThreadDescriptionEntry += str(rightOperand)
+                condThreadDescriptionEntry += ", "
+                condThreadDescriptionEntry += callbackFunction.__name__
+                condThreadDescriptionEntry += ", "
+                if isPersistent == True:
+                    condThreadDescriptionEntry += "Persistent"
+                else:
+                    condThreadDescriptionEntry += "Non-persistent"
+                condThreadDescriptionEntry += ", "
+                condThreadDescriptionEntry += alias
+                condThreadDescriptionEntry += ")"
+                self.condThreadDescription += condThreadDescriptionEntry
+        else:
+            self.condThreadDescription += "No conditions present"
+            
+    def returnDict(self):
+        """
+        Returns the sensor status object as a dictionary
+        """
+
+        statusDict = {
+            "keyword": self.keyword,
+            "latestReading": self.latestReading,
+            "contPollingThreadActive": self.contPollingThreadActive,
+            "condThreadActive": self.condThreadActive,
+            "condThreadDescription": self.condThreadDescription
+        }
+        return statusDict
+    
+    def returnStatusDictString(self, statusDict : dict):
+        statusString = ""
+        statusString += "---------------------------------------------\n"
+        statusString += ("keyword: " + statusDict["keyword"] + "\n")
+        statusString += ("latestReading: " + str(statusDict["latestReading"]) + "\n")
+        statusString += ("contPollingThreadActive: " + str(statusDict["contPollingThreadActive"]) + "\n")
+        statusString += ("condThreadActive: " + str(statusDict["condThreadActive"]) + "\n")
+        statusString += "condThreadDescription: " + statusDict["condThreadDescription"] + "\n"
+        statusString += "---------------------------------------------"
+        
+        return statusString
+*********************
+class PeristalticPumpStatus():
+    def __init__(self, alias):
+        self.alias = alias
+        self.pumpActive = False # False initially, this is True when the pump is pumping
+        self.activeDescription = "" # This will be an empty string when the pump is not active, when it is active, it will be a string that reflects the type of activity being performed
+        
+    def setPumpState(self, state):
+        self.pumpActive = state
+    def getPumpState(self):
+        return self.pumpActive
+    
+    def setActiveDescription(self, description):
+        self.activeDescription = description
+    def getActiveDescription(self):
+        return self.activeDescription
+    
+    def returnDict(self):
+        """
+        Returns the pump status object as a dictionary
+        """
+        
+        statusDict = {
+            "alias": self.alias,
+            "pumpState": self.pumpActive,
+            "activeDescription": self.activeDescription
+        }
+        
+        return statusDict
+*********************
+def startPumpThread(self):
+        if(self.pumpThread == None and self.status.getStatusFieldTupleValue("pumpThreadActive") == False):
+            # initialize pumpThread
+            self.pumpThread = th.Thread(target=self.pumpThreadTarget)
+            self.status.setStatusFieldTupleValue("pumpThreadActive", True)
+            self.pumpThread.start()
+        else:
+            raise Exception("Could not create cond thread, check thread variables")
+        
+    def terminatePumpThread(self):
+        """
+        Will terminate the pump thread and reset some things
+        NOTE: The only way for the pump thread to terminate is through this method. It cannot terminate by itself
+        """
+        # first send command to set to stop mode first if in "on" mode
+        if self.modeChangeFlag == False and self.status.getStatusFieldTupleValue("mode") == "on":
+            self.insertTurnOffCommand()
+            
+        self.status.setStatusFieldTupleValue("pumpThreadActive", False)
+        self.pumpThread = None
+
+    def pumpThreadTarget(self):
+        while(self.status.getStatusFieldTupleValue("pumpThreadActive") == True and self.pumpThread != None):
+            
+            if self.modeChangeFlag == True:
+                
+                mode = self.status.getStatusFieldTupleValue("mode")
+                
+                if mode == "on":
+                    self.turnOn()
+                elif mode == "off":
+                    self.turnOff()
+                elif mode == "onWithDuration":
+                    self.turnOnWithDuration(self.onWithDurationSeconds)
+                
+                self.modeChangeFlag = False
+            
+            time.sleep(1)
+
+    def setOnWithDurationSeconds(self, seconds):
+        self.onWithDurationSeconds = seconds
+
+    # self.modeChangeFlag == False is included because we only want to send a command when the thread is ready to execute another command
+    def insertTurnOnCommand(self):
+        """
+        This is not the same as turning on the pump. It is meant to change certain values to trigger certain events during pump thread execution
+        """
+        # ensure certain flags are set properly before executing
+        # during thread execution, this being false means that a certain event has finished executing
+        if(self.modeChangeFlag == False and self.status.getStatusFieldTupleValue("mode") == "off"):
+            self.status.setStatusFieldTupleValue("mode", "on")
+            self.modeChangeFlag = True
+        else:
+            raise Exception(self.printID + "Tried to insert turn on command when flag values not proper")
+
+    # switch from "on" to "off" manually
+    # switch from "onWithDuration" to "off" is done automatically
+    # self.modeChangeFlag == False is included because we only want to send a command when the thread is ready to execute another command
+    def insertTurnOffCommand(self):
+        if(self.modeChangeFlag == False and self.status.getStatusFieldTupleValue("mode") == "on"):
+            self.status.setStatusFieldTupleValue("mode", "off")
+            self.modeChangeFlag = True
+        else:
+            raise Exception(self.printID + "Tried to insert turn off command when flag values not proper")
+    
+    # switch from "off" to "on" manually
+    # you cannot switch between "on" and "onWithDuration"
+    def insertTurnOnWithDurationCommand(self):
+        # self.modeChangeFlag == False is included because we only want to send a command when the thread is ready to execute another command
+        if(self.modeChangeFlag == False and self.status.getStatusFieldTupleValue("mode") == "off"):
+            self.status.setStatusFieldTupleValue("mode", "onWithDuration")
+            self.modeChangeFlag = True
+        else:
+            raise Exception(self.printID + "Tried to insert turn on command when flag values not proper")
+*********************
