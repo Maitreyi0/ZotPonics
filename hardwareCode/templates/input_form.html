@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Control Pump</title>
+    <script>
+        // Toggle visibility of duration input based on selected pump action
+        function toggleDurationInput() {
+            const pumpAction = document.getElementById("pump").value;
+            const durationInput = document.getElementById("durationInput");
+            durationInput.style.display = (pumpAction === "on_with_duration") ? "block" : "none";
+        }
+    </script>
+</head>
+<body>
+    <h1>Pump Control</h1>
+    <form action="{{ url_for('submit_form') }}" method="post">
+        <label for="pump">Pump Action:</label>
+        <select name="pump" id="pump" onchange="toggleDurationInput()">
+            <option value="on">Turn On</option>
+            <option value="off">Turn Off</option>
+            <option value="on_with_duration">Turn On with Duration</option>
+        </select>
+
+        <div id="durationInput" style="display:none; margin-top:10px;">
+            <label for="duration">Duration (seconds):</label>
+            <input type="number" name="duration" min="1" placeholder="Enter duration in seconds">
+        </div>
+
+        <button type="submit">Submit</button>
+    </form>
+</body>
+</html>
