@@ -1,4 +1,4 @@
-from pPump import PeristalticPump
+from hardwareCode.PeristalticPump import PeristalticPump
 from AtlasI2C_Sensor import AtlasI2C_Sensor
 import threading as th
 import GPIO_Utility

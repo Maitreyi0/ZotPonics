@@ -1,4 +1,4 @@
-from pPump import PeristalticPump
+from hardwareCode.PeristalticPump import PeristalticPump
 import GPIO_Utility
 
 if __name__ == "__main__":

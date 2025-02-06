@@ -10,7 +10,7 @@ This is the class that will represent the pH and EC subsystems individually. The
 """
 
 import GPIO_Utility
-from pPump import PeristalticPump
+from hardwareCode.PeristalticPump import PeristalticPump
 import AtlasI2C_Sensor as SensorModule
 from Status import Status
 import time

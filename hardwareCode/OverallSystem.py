@@ -9,7 +9,7 @@ from MenuManagementSystem import MenuManagementSystem
 from MenuManagementSystemTestCases import greet_user, add_numbers
 from ConsoleProgram import ConsoleProgram
 from Status import Status
-from pPump import PeristalticPump
+from hardwareCode.PeristalticPump import PeristalticPump
 from AtlasI2C_Sensor import AtlasI2C_Sensor
 from FileOutputManagementSystem import FileOutputManagementSystem
 
@@ -73,7 +73,7 @@ class OverallSystem:
    """
    def __init__(self, phAndEC_Subsystem=None, menuManagementSystem=None, phSubsystem=None, ecSubsystem=None, consoleProgram=None):
       
-      self.status = Status(topLevel=True, debugMode=False)
+      self.status = Status(topLevel=True, debugModeOn=False)
       self.status.addStatusFieldTuple("alias", "overallSystem")
       self.status.addStatusFieldTuple("phSubsystem", phSubsystem.status)
       
