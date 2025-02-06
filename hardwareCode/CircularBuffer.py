@@ -82,6 +82,8 @@ class CircularBuffer:
 
 if __name__ == "__main__":
     circularBuffer = CircularBuffer(50)
-    for i in range(0, 50):
+    for i in range(0, 10):
         print("adding " + str(i) + " to the buffer")
         circularBuffer.add(i)
+    values = circularBuffer.getCB_Values()
+    print(str(values))

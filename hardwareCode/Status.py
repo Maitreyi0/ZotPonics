@@ -200,7 +200,6 @@ def testCase():
     exit()
     
 def testCaseThread():
-    # if the status dict won't have any sub-status dicts as values
     status = Status(topLevel=True, debugMode=True)
 
     status.addStatusFieldTuple("testKey", "testValue")

@@ -14,30 +14,39 @@ from pPump import PeristalticPump
 import AtlasI2C_Sensor as SensorModule
 from Status import Status
 import time
+import AtlasI2C_SensorAndPumpsTestCases
+from AtlasI2C_Sensor import AtlasI2C_Sensor
+from FileOutputManagementSystem import FileOutputManagementSystem
+
+PeristalticPump()
 
 # September 11, 2024: I am going to make this class support variable pumps and sensors
 class AtlasI2C_SensorAndPumps():
-    def __init__(self, alias, pumpA_Pin, pumpA_Alias, pumpB_Pin, pumpB_Alias, sensorKeyWord, writeDataToCSV, debugMode, contPollThreadIndependent, isOutermostEntity):
+    def __init__(self, alias, sensor, pumpsList, debugMode, isOutermostEntity):
+        """
+        Initializes the AtlasI2C_SensorAndPumps class with pre-created sensor and pump objects.
+        
+        Args:
+            alias (str): Alias for this system.
+            sensor (AtlasI2C_Sensor): Pre-created sensor object.
+            pumps (list): List of pre-created PeristalticPump objects.
+            debugMode (bool): Flag for enabling debug mode.
+            isOutermostEntity (bool): Flag to indicate if this is the outermost entity.
+        """
         
         if isOutermostEntity:
             GPIO_Utility.setModeBCM()
-        
-        # the status objects of the sensor and pumps already contain most of the information. As of September 13, 2024, this specific status object will just contain the aliases of the sensor and pumps
-        
-        self.alias = alias # this is just so we know what this sensor and pumps subsystem is, w/o an alias it would be hard to tell
-        self.printID = "[" + self.alias + "]: "
-        self.pumpList = []
-        self.pumpList.append(PeristalticPump(pumpA_Pin, pumpA_Alias, False))
-        self.pumpList.append(PeristalticPump(pumpB_Pin, pumpB_Alias, False))
-        self.sensor = SensorModule.AtlasI2C_Sensor(sensorKeyWord, writeDataToCSV=writeDataToCSV, debugMode=debugMode, contPollThreadIndependent=contPollThreadIndependent, isOutermostEntity=False)
+
+        self.printID = "[" + alias + "]: "
+        self.pumpList = pumpsList  # Use the provided list of pump objects
+        self.sensor = sensor   # Use the provided sensor object
         self.status = Status(isOutermostEntity, debugMode)
+        
+        # Set status fields
         self.status.addStatusFieldTuple("alias", alias)
-        # lower-level status objects will be stored as status objects of higher-level status objects still
-        # NOTE: Will not store lower-level status objects as strings or dicts
         self.status.addStatusFieldTuple("sensorStatus", self.sensor.status)
         
-        # for the status field tuples involving the pump status objects, the keys will be non-meaningful names such as "pump1", "pump2", etc.
-        # the reason for this is because the aliases of the pumps are already in the pump status objects so having their aliases as the keys as well would be redundant
+        # Add pump status objects to the status field
         leftString = "pump"
         num = 1
         rightString = "Status"
@@ -46,12 +55,19 @@ class AtlasI2C_SensorAndPumps():
             self.status.addStatusFieldTuple(keyString, pump.status)
             num += 1
         
-    def startSystem(self):
+    def startSystem(self, option):
         """
         This starts all the threads of the system
+        Args:
+            option (_String_): Will be "contPoll", "cond", or "all"
         """
-        self.startSensorContPollThread()
-        self.startSensorCondThread()
+        if option == "all":
+            self.startSensorContPollThread()
+            self.startSensorCondThread()
+        elif option == "contPoll":
+            self.startSensorContPollThread()
+        elif option == "cond":
+            self.startSensorCondThread()
         
     def terminateSystem(self):
         """
@@ -85,7 +101,7 @@ class AtlasI2C_SensorAndPumps():
         """
         pumpOfInterest = None
         for pump in self.pumpList:
-            if(pump.alias == pumpAlias):
+            if(pump.status.getStatusFieldTupleValue("alias") == pumpAlias):
                 pumpOfInterest = pump
                 break
         if pumpOfInterest == None:
@@ -105,37 +121,69 @@ class AtlasI2C_SensorAndPumps():
         self.terminateSensorContPollThread()
         self.terminateSensorCondThread()
         
-        self.sensor.condThread.join()
-        self.sensor.contPollThread.join()
-        
-        GPIO_Utility.gpioCleanup()
+    def turnOnPumpWithDuration(self, alias, seconds):
+        pumpOfInterest = None
+        for pump in self.pumpList:
+            if(pump.status.getStatusFieldTupleValue("alias") == alias):
+                pumpOfInterest = pump
+                break
+        if pumpOfInterest == None:
+            raise Exception(self.printID + "Could not locate pump of interest for adding onWithDuration as cond thread tuple callback")
+        else:
+            pumpOfInterest.turnOnWithDuration(seconds)
     
-def testCase():
+    def addStandardLowerBoundPumpCondition(self, val, pumpAlias):
+        self.addToListCondThreadTuplesPumpDuration(comparator="<", rightOperand=val, pumpAlias=pumpAlias, isPersistent=True, description=f"lessThan{val}")
+        
+    def addStandardUpperBoundPumpCondition(self, val, pumpAlias):
+        self.addToListCondThreadTuplesPumpDuration(comparator=">", rightOperand=val, pumpAlias=pumpAlias, isPersistent=True, description=f"greaterThan{val}")
+    
+if __name__ == "__main__":
+    
+    GPIO_Utility.setModeBCM()
+    
+    # this test case tests for pH
+    
     pH_UpPin = 22
     pH_DownPin = 23
     baseA_Pin = 20
     baseB_Pin = 21
     
-    sensorAndPumpsSubsystem = AtlasI2C_SensorAndPumps("ec_Subsystem", baseA_Pin, "baseA", baseB_Pin, "baseB", "EC", False, True, False, True)
+    pumpsList = []
+    pumpsList.append(PeristalticPump(pH_DownPin, "phDown", False, False))
+    pumpsList.append(PeristalticPump(pH_UpPin, "phUp", False, False))
     
-    sensorAndPumpsSubsystem.addToListCondThreadTuplesGeneral(">", 100, False, sensorAndPumpsSubsystem.sensor.turnOnLED_TestCallback, [], "Will turn on LED for 5 seconds and then turn back off")
-    sensorAndPumpsSubsystem.addToListCondThreadTuplesPumpDuration(">", 100, "baseA", True, "turn on baseA pump")
+    fileOutputManagementSystem = FileOutputManagementSystem(fileName="AtlasI2C_SensorAndPumps.log", includeTimeStamp=True)
     
-    sensorAndPumpsSubsystem.status.updateStatusDict()
-    sensorAndPumpsSubsystem.status.updateStatusString(includeHorizontalLines=True)
+    sensorOptions = [AtlasI2C_Sensor.PH_SENSOR_KEY_WORD, AtlasI2C_Sensor.EC_SENSOR_KEY_WORD]
+    sensorKeyWord = sensorOptions[0]
+    sensor = AtlasI2C_Sensor(sensorKeyWord, debugMode=True, contPollThreadIndependent=False, isOutermostEntity=False, generateMatPlotLibImages=True, alias="AtlasI2C_Sensor", fileOutputManagementSystem=fileOutputManagementSystem)
     
-    print(sensorAndPumpsSubsystem.status.statusString)
+    sensorAndPumpsSubsystem = AtlasI2C_SensorAndPumps(alias="phSubsystem", sensor=sensor, pumpsList=pumpsList, debugMode=True, isOutermostEntity=True)
     
     input("Input anything to start cont poll and cond threads: ")
-    
     sensorAndPumpsSubsystem.startSensorContPollThread()
     sensorAndPumpsSubsystem.startSensorCondThread()
     
-    input("Input anything to end program: ")
+    input("Input anything to add pump cond thread tuple (lessThan9) to list: ")
+    sensorAndPumpsSubsystem.addStandardLowerBoundPumpCondition(val=9, pumpAlias="phUp")
+    sensorAndPumpsSubsystem.sensor.addStatusToLog(update=True)
+    
+    input("Input anything to remove lessThan9 from list: ")
+    sensor.removeFromListCondThreadTuples("lessThan9")
+    sensor.addStatusToLog(update=True)
+    
+    time.sleep(2) # delay to allow the callback to trigger before the input statement
+    input("Input anything to terminate cont poll and cond thread and end program: ")
+    
+    sensor.terminateContPollThread()
+    sensor.terminateCondThread()
+    sensor.addStatusToLog(update=True)
+    
+    sensor.activityLogManager.massWriteQueueToFile()
+    sensor.massGeneratePlotImages()
 
     sensorAndPumpsSubsystem.shutDownSystem()
-
-    exit()
     
-if __name__ == "__main__":
-    testCase()
+    
+    GPIO_Utility.gpioCleanup()

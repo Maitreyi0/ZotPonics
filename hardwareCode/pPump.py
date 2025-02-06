@@ -11,7 +11,8 @@ import time
 
 class PeristalticPump:
     
-    DEFAULT_DELAY_SECONDS = 5 # the default value for the turnOnWithDuration method's seconds argument
+    DEFAULT_DELAY_SECONDS = 1 # the default value for the turnOnWithDuration method's seconds argument
+    # it shouldn't be too high to avoid changing the properties of the water too much
     
     # pin: this is the pin that will be used to activate the pump (when the pin is set to HIGH)
     # - this pin can directly be connected with the anode of the pump or a relay IN pin
@@ -25,8 +26,7 @@ class PeristalticPump:
         self.status = Status(isOutermostEntity, debugMode)   
         
         self.pin = pin
-        self.alias = alias
-        self.printID = "[" + self.alias + "]: "
+        self.printID = "[" + alias + "]: "
         self.status.addStatusFieldTuple("alias", alias)
         self.status.addStatusFieldTuple("pin", pin)
         self.status.addStatusFieldTuple("pumpActive", False) # True when voltage is being supplied, False when voltage is not being supplied
@@ -91,10 +91,10 @@ class PeristalticPump:
         print(self.status.statusString)
         
 
-def testCase1():
-    pPumpPin = 20
+def testCase1(pumpPin):
+    pPumpPin = pumpPin
     
-    pump = PeristalticPump(pPumpPin, "pPump", True)
+    pump = PeristalticPump(pPumpPin, "pPump", True, False)
     
     input("Input anything to turn on with duration: ")
     
@@ -116,4 +116,4 @@ def testCase1():
     exit()
 
 if __name__ == "__main__":
-    testCase1()
+    testCase1(20)

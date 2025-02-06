@@ -1,15 +1,15 @@
-
-
 from AtlasI2C import AtlasI2C as AL
 import time
 import AtlasI2C_Utility as ALU
 import threading as th
 from CircularBuffer import CircularBuffer as CB
-import csv
 from Status import Status
 import RPi.GPIO as GPIO
 import GPIO_Utility
 import datetime
+from PlotImagesManager import PlotImagesManager
+from FileOutputManagementSystem import FileOutputManagementSystem
+import pdb
 
 # Overview
 # Threads:
@@ -22,7 +22,7 @@ import datetime
 # - however, we still store thread objects as attributes to ensure they have ended before continuing code (by running the join method)
 
 # As of August 26, 2024, this class only fully supports the pH and EC subsystems
-class AtlasI2C_Sensor():
+class AtlasI2C_Sensor:
     
     # units: (pH, unitless), (EC, micro-siemens)
     PH_SENSOR_KEY_WORD = "pH"
@@ -34,11 +34,28 @@ class AtlasI2C_Sensor():
     
     SENSOR_GET_READING_DELAY = 2 # the time, in seconds, in between attempts to get readings from sensor
     
+    COND_THREAD_DELAY = 5 # in seconds
+    
+    IMAGES_FILE_PATH_BASE = "plotImages"
+    
     # the parameter, keyword, is used to locate the specific Atlas I2C device that will be associated with the subsystem object. It will also be stored in the attribute, deviceKeyword, for future reference
     # once the device is found, it will be stored in the attribute, device
-    def __init__(self, keyword : str, writeDataToCSV : bool, debugMode : bool, contPollThreadIndependent : bool, isOutermostEntity : bool):
+    def __init__(self, keyword : str, debugMode : bool, contPollThreadIndependent : bool, isOutermostEntity : bool, alias : str, fileOutputManagementSystem, generateMatPlotLibImages=False):
         
-        if isOutermostEntity:
+        self.alias = alias
+        
+        self.generateMatPlotLibImages = generateMatPlotLibImages # this will use the existing data to generate matplotlib images
+        
+        # for debug messages, we will insert them into this queue instead of printing to terminal
+        if debugMode == True:
+            self.activityLogManager = fileOutputManagementSystem
+        
+        if self.generateMatPlotLibImages == True:
+            directoryPath = keyword + AtlasI2C_Sensor.IMAGES_FILE_PATH_BASE
+            self.plotImagesManager = PlotImagesManager(directoryPath, AtlasI2C_Sensor.CB_SIZE)
+        
+        self.isOutermostEntity = isOutermostEntity
+        if self.isOutermostEntity:
             GPIO_Utility.setModeBCM()
             
         
@@ -50,42 +67,24 @@ class AtlasI2C_Sensor():
         # set value of attribute, deviceKeyword
         self.deviceKeyword = keyword
         
-        # string used at the beginning of a print statement so that we know the sensor associated with the print statement
-        self.printID = "[" + self.deviceKeyword + "]: "
-        
         # the status object holds important details about the status of the corresponding sensor object
         # As of Sep 5, 2024, there are 3 status properties:
         # - sensor keyword
         # - latest reading
         # - polling state
+        self.status.addStatusFieldTuple("alias", alias)
         self.status.addStatusFieldTuple("keyword", keyword) # add keyword field to it
         
         # add additional status fields
         self.status.addStatusFieldTuple("latestReading", None)
         self.status.addStatusFieldTuple("contPollingThreadActive", False)
         self.status.addStatusFieldTuple("condThreadActive", False)
-        self.status.addStatusFieldTuple("condThreadDescription", "")
-        
-        # flag for if the sensor object should write data to file
-        # as of September 5, 2024, will write after getting direct data from sensor (don't want to access the data from the CB because multiple things access the CB already)
-        self.writeDataToCSV = writeDataToCSV
+        self.status.addStatusFieldTuple("condThreadDescription", "No existing cond threads")
         
         # flag for determining whether the cont poll thread will be synchronized with CB reading
         # if set to False, will wait until the latest value of CB has been read before getting next value
         # if set to True, will just keep adding values to CB independently
         self.contPollThreadIndependent = contPollThreadIndependent
-        
-        # numReadings keeps track of the number of readings that have been read from a sensor since polling has started (this variable only updates if writeDataToCSV is set to True during object initialization
-        self.numReadings = 0 # is zero initially
-        
-        # if we aren't choosing to write to CSV, no need to have csvFileName attribute so just initialize it w/i the if statement
-        if(writeDataToCSV == True):
-            # set value of attribute, csvFileName
-            # csvFileName is for when writeDataToCSV is set to true and it will write data to this file
-            self.csvFileName = keyword + "_Data.csv"
-            # "initialize" the file with nothing first
-            with open(self.csvFileName, "w") as csvFile:
-                csvFile.write("")
         
         # locating the device and set value of attribute, device
         self.device = None
@@ -160,7 +159,7 @@ class AtlasI2C_Sensor():
                 condThreadDescriptionEntry += "), "
                 newCondThreadDescription += condThreadDescriptionEntry
         else:
-            newCondThreadDescription += "No conditions present"
+            newCondThreadDescription += "No existing cond threads"
             
         self.status.setStatusFieldTupleValue("condThreadDescription", newCondThreadDescription)
     
@@ -174,6 +173,8 @@ class AtlasI2C_Sensor():
         condThreadTuple = (comparator, rightOperand, callbackFunction, argsListForCallback, isPersistent, description)
         self.listCondThreadTuples.append(condThreadTuple)
         self.setCondThreadDescriptionStatusField() # update the status
+        if self.debugMode == True:
+            self.activityLogManager.addItem("Added cond thread tuple: " + str(condThreadTuple))
         
     # all you need is the alias in order to locate a specific cond thread tuple
     def removeFromListCondThreadTuples(self, alias):
@@ -182,6 +183,8 @@ class AtlasI2C_Sensor():
         
         for condThreadTuple in self.listCondThreadTuples:
             if condThreadTuple[5] == alias:
+                if self.debugMode == True:
+                    self.activityLogManager.addItem("Removed cond thread tuple: " + str(condThreadTuple))
                 self.listCondThreadTuples.remove(condThreadTuple)
                 removedCondThreadTuple = True
                 break
@@ -201,15 +204,6 @@ class AtlasI2C_Sensor():
         # parse the response for just the numerical value and then return
         readingVal = ALU.extract_num_val(reading)
         
-        if(self.writeDataToCSV == True):
-            
-            self.numReadings = self.numReadings + 1 # increment numReadings since just got another reading
-            
-            # the specification of the newline argument is to work with the csv module
-            with open(self.csvFileName, "a", newline='') as csvFile:
-                csvWriter = csv.writer(csvFile)
-                csvWriter.writerow([self.numReadings, readingVal])
-        
         return readingVal
         
     def startCondThread(self):
@@ -224,8 +218,10 @@ class AtlasI2C_Sensor():
             self.status.setStatusFieldTupleValue("condThreadActive", True)
             # self.status.setCondThreadState(True)
             self.condThread.start()
+            if self.debugMode == True:
+                self.activityLogManager.addItem("Cond thread started")
         else:
-            raise Exception(self.printID + "Could not create cond thread, check thread variables")
+            raise Exception("Could not create cond thread, check thread variables")
     
     def condThreadTarget(self):
         """
@@ -277,18 +273,16 @@ class AtlasI2C_Sensor():
                     # because we removed a cond thread tuple, have to update the cond thread description status field
                     self.setCondThreadDescriptionStatusField()
                     
-            time.sleep(1)
+            time.sleep(AtlasI2C_Sensor.COND_THREAD_DELAY)
         
         if(self.debugMode == True):
-            print(self.printID + "Conditional thread has been terminated")
+            self.activityLogManager.addItem("Conditional thread has been terminated")
         return
     
     def terminateCondThread(self):
         
         if self.status.getStatusFieldTupleValue("condThreadActive") == True:
             self.status.setStatusFieldTupleValue("condThreadActive", False)
-        else:
-            raise Exception("Could not terminate cond thread, check thread variables")
     
     def startContPollThread(self):
         # only start a new thread when there is no existing thread of the same kind
@@ -296,6 +290,8 @@ class AtlasI2C_Sensor():
             self.contPollThread = th.Thread(target=self.contPollThreadTarget)
             self.status.setStatusFieldTupleValue("contPollingThreadActive", True) # NOTE: It is important that this line of code comes before starting the thread, because the target function expects the flag to be true when it starts
             self.contPollThread.start()
+            if self.debugMode == True:
+                self.activityLogManager.addItem("Cont Poll Thread started")
         return
             
     def contPollThreadTarget(self):
@@ -306,24 +302,42 @@ class AtlasI2C_Sensor():
                     currentReading = self.getReading()
                     self.status.setStatusFieldTupleValue("latestReading", currentReading)
                     if(self.debugMode == True):
-                        print(self.printID + "Got reading, " + str(currentReading) + ", and adding to CB")
+                        self.activityLogManager.addItem("Got reading, " + str(currentReading) + ", and adding to CB")
                     with self.CB_Lock:
                         self.CB.add(currentReading) # a new sensor reading is added at this point
+                        if self.generateMatPlotLibImages == True:
+                            latestListCB_Values = self.CB.getCB_Values()
+                            self.activityLogManager.addItem("latestListCB_Values: " + str(latestListCB_Values))
+                            self.plotImagesManager.saveListOfVals(latestListCB_Values)
             else:
                 currentReading = self.getReading()
                 self.status.setStatusFieldTupleValue("latestReading", currentReading)
                 if(self.debugMode == True):
-                    print(self.printID + "Got reading, " + str(currentReading) + ", and adding to CB")
+                    self.activityLogManager.addItem("Got reading, " + str(currentReading) + ", and adding to CB")
                 with self.CB_Lock:
                     self.CB.add(currentReading) # a new sensor reading is added at this point
             time.sleep(AtlasI2C_Sensor.SENSOR_GET_READING_DELAY)
         if(self.debugMode == True):
-            print(self.printID + "Continuous Polling Thread has been terminated")
+            self.activityLogManager.addItem("Continuous Polling Thread has been terminated")
         
     def terminateContPollThread(self):
         # manually set value of flags to cancel the thread
-        self.status.setStatusFieldTupleValue("contPollingThreadActive", False)
+        if self.status.getStatusFieldTupleValue("contPollingThreadActive") == True:
+            self.status.setStatusFieldTupleValue("contPollingThreadActive", False)
         # wait for the thread target to exit before setting variable value to None
+    
+    def addStatusToLog(self, update : bool):
+        # if true then update both dict and string, if false just update string since dict should have been updated recursively
+        if update == True:
+            self.status.updateStatusDict()
+            self.status.updateStatusString(True)
+            self.activityLogManager.addItem(self.status.statusString)
+            
+    def massGeneratePlotImages(self):
+        if self.generateMatPlotLibImages == True:
+            self.plotImagesManager.generateAllPlots()
+        else:
+            Exception("Option for generating plot images was not enabled")
 
 
 def placeholderCallback(arg):
@@ -344,9 +358,7 @@ def testCase2(contPollThreadIndependent):
     
     time.sleep(1)
     
-    status.updateStatusDict()
-    status.updateStatusString(includeHorizontalLines=True)
-    print(status.statusString)
+    sensor.addStatusToLog(update=True)
     
     time.sleep(1)
     input("Input anything to end the program: ")
@@ -355,57 +367,41 @@ def testCase2(contPollThreadIndependent):
 
 def testCase1():
     sensorOptions = [AtlasI2C_Sensor.PH_SENSOR_KEY_WORD, AtlasI2C_Sensor.EC_SENSOR_KEY_WORD]
-    sensorKeyWord = sensorOptions[1]
-    sensor = AtlasI2C_Sensor(sensorKeyWord, writeDataToCSV=False, debugMode=True, contPollThreadIndependent=False)
-    status = sensor.status
+    sensorKeyWord = sensorOptions[0]
     
-    sensor.startCondThread() # start the condition thread without any condition thread tuples
-    status.updateStatusDict()
-    status.updateStatusString(includeHorizontalLines=True)
-    print(status.statusString)
+    fileOutputManagementSystem = FileOutputManagementSystem(fileName="AtlasI2C_Sensor.log", includeTimeStamp=True)
     
-    input("Input anything to add cond thread tuple to list: ")
+    sensor = AtlasI2C_Sensor(sensorKeyWord, debugMode=True, contPollThreadIndependent=False, isOutermostEntity=True, generateMatPlotLibImages=True, alias="AtlasI2C_Sensor", fileOutputManagementSystem=fileOutputManagementSystem)
     
+    input("Input anything to start cont poll and cond threads: ")
+    sensor.startContPollThread()
+    sensor.startCondThread() # start the condition thread without any condition thread tuples initially
+    sensor.addStatusToLog(update=True)
+    
+    input("Input anything to add cond thread tuple (greaterThan20) to list: ")
     sensor.addToListCondThreadTuples(">", 20, placeholderCallback, ["placeholderCallbackArg"], True, "greaterThan20") # add a tuple, will update status automatically
+    sensor.addStatusToLog(update=True)
     
-    status.updateStatusDict()
-    status.updateStatusString(includeHorizontalLines=True)
-    print(status.statusString)
-    
-    input("Input anything to insert 100 into CB: ")
-    
-    sensor.CB.add(100) # add a value to trigger the callback
-    
-    time.sleep(1) # delay to allow the callback to trigger before the input statement
-    input("Input anything to insert 80 into CB: ")
-    
-    sensor.CB.add(80) # add another value to trigger the callback again
-    
-    time.sleep(1) # delay to allow the callback to trigger before the input statement
-    input("Input anything to remove cond thread tuple from list: ")
-    
+    input("Input anything to remove greaterThan20 from list: ")
     sensor.removeFromListCondThreadTuples("greaterThan20")
+    sensor.addStatusToLog(update=True)
     
-    status.updateStatusDict()
-    status.updateStatusString(includeHorizontalLines=True)
-    print(status.statusString) # check that it is removed
+    time.sleep(2) # delay to allow the callback to trigger before the input statement
+    input("Input anything to terminate cont poll and cond thread and end program: ")
     
-    time.sleep(1) # delay to allow the callback to trigger before the input statement
-    input("Input anything to terminate cond thread and end program: ")
-    
+    sensor.terminateContPollThread()
     sensor.terminateCondThread()
+    sensor.addStatusToLog(update=True)
     
-    # print stauts one last time
-    status.updateStatusDict()
-    status.updateStatusString(includeHorizontalLines=True)
-    print(status.statusString)
-        
-    exit()
+    sensor.activityLogManager.massWriteQueueToFile()
+    sensor.massGeneratePlotImages()
 
-if(__name__ == "__main__"):
+    exit()
+    
+def testCase3():
     sensorOptions = [AtlasI2C_Sensor.PH_SENSOR_KEY_WORD, AtlasI2C_Sensor.EC_SENSOR_KEY_WORD]
     sensorKeyWord = sensorOptions[1]
-    sensor = AtlasI2C_Sensor(sensorKeyWord, writeDataToCSV=False, debugMode=True, contPollThreadIndependent=False, isOutermostEntity=True)
+    sensor = AtlasI2C_Sensor(sensorKeyWord, writeDataToCSV=False, debugMode=True, contPollThreadIndependent=False, isOutermostEntity=True ,generateMatPlotLibImages=True)
     
     sensor.addToListCondThreadTuples(">", 100, sensor.turnOnLED_TestCallback, [], False, "Will turn on LED for 5 seconds and then turn back off")
     
@@ -430,3 +426,6 @@ if(__name__ == "__main__"):
     sensor.terminateCondThread()
     GPIO_Utility.gpioCleanup()
     exit()
+
+if(__name__ == "__main__"):
+    testCase1()
