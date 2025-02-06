@@ -19,7 +19,7 @@ import GPIO_Utility
 
 class PumpDriver:
     
-    def __init__(self, in1_pin, in2_pin, pwm_pin, alias, isOutermostEntity, frequency=1000):
+    def __init__(self, in1_pin, in2_pin, pwm_pin, statusArgsDict, frequency=1000):
         """
         Initialize the PumpDriver.
 
@@ -28,24 +28,25 @@ class PumpDriver:
         :param pwm_pin: GPIO pin for PWM control
         :param frequency: Frequency for PWM signal (default is 1000Hz)
         """
+        
         self.in1_pin = in1_pin
         self.in2_pin = in2_pin
         self.pwm_pin = pwm_pin
-        self.alias = alias
-        self.isOutermostEntity = isOutermostEntity
-        # CONVENTION: GPIO Setup and Cleanup done by outermost entity
-        if isOutermostEntity:
+        # CONVENTION: GPIO Setup and Cleanup done by top level entity, the top level entity corresponds with the top level status
+        self.status : Status = Status.init_from_dict(statusArgsDict)
+        if self.status.getStatusFieldTupleUsingKey("isTopLevelStatusObject"):
             GPIO_Utility.setModeBCM()
+            
         self.frequency = frequency
         
-        # GPIO mode should be set at this point
+        # Assumed: GPIO mode is initialized at this point
         GPIO.setup(self.in1_pin, GPIO.OUT)
         GPIO.setup(self.in2_pin, GPIO.OUT)
         GPIO.setup(self.pwm_pin, GPIO.OUT)
         self.pwm = GPIO.PWM(self.pwm_pin, self.frequency)
         self.pwm.start(0)  # Start with 0% duty cycle (off)
         
-        # Turn off initially
+        # Turn off initially: sets in1 and in2 both to LOW
         self.turn_off()
 
     def turn_on(self):
@@ -58,7 +59,7 @@ class PumpDriver:
         GPIO.output(self.in1_pin, GPIO.LOW)
         GPIO.output(self.in2_pin, GPIO.LOW)
 
-    def set_pwm(self, duty_cycle):
+    def set_pwm_duty_cycle(self, duty_cycle):
         """
         Set the PWM duty cycle.
 
@@ -81,10 +82,15 @@ if __name__ == "__main__":
     
     import time
     
-    pumpDriver = PumpDriver(in1_pin=5,in2_pin=6,pwm_pin=12,alias="pumpDriver",isOutermostEntity=True)
+    statusArgsDict = {}
+    statusArgsDict["alias"] = "statusObject"
+    statusArgsDict["isTopLevelStatusObject"] = True
+    statusArgsDict["debugModeOn"] = True
+    
+    pumpDriver = PumpDriver(in1_pin=5,in2_pin=6,pwm_pin=12,alias="pumpDriver",isTopLevel=True)
     pumpDriver.turn_on()
-    pumpDriver.set_pwm(50)
-    time.sleep(1)
+    pumpDriver.set_pwm_duty_cycle(50)
+    time.sleep(3)
     pumpDriver.cleanup()
     
     exit()
