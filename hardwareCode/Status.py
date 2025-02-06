@@ -1,10 +1,16 @@
 import time
 import threading as th
 
+
+
 class Status:
-    def __init__(self, topLevel : bool, debugMode : bool):
+    def __init__(self, alias, topLevel : bool, debugModeOn : bool):
         """
-        To support different use cases, the initialization of this won't require any arguments
+        Initialize a Status class object.
+        
+        :param alias: This will be one of the tuples that the tuples list will be initialized with (Makes sense that each Status object has the alias of the entity it is a status of)
+        :param topLevel: True if this status is the outermost status, False if not (this is used for proper function of some methods), won't be a part of tuples
+        :param debugModeOn: If true, will print out statements regarding some things happening within the status object, won't be a part of tuples
         """
         self.statusFieldTuples = [] # empty list, will be populated with two-tuples (i.e., (statusFieldKey, statusFieldValue))
         
@@ -12,7 +18,10 @@ class Status:
         self.statusDict = {} # directly derived from the list of status field tuples, empty dict initially
         self.statusString = None # directly derived from the statusDict
         
-        self.debugMode = debugMode
+        self.debugMode = debugModeOn
+        
+        self.addStatusFieldTuple("alias", alias) # The first tuple of the tuple list
+        
         
         # flag for indicating that a status field value got changed
         # NOTE: Only accounts for changes in the current status level, sub status objects won't be accounted for (so basically this applies for all current level status field tuples that aren't status objects)
@@ -20,13 +29,24 @@ class Status:
         # this is the thread that will use the status field value got changed flag to update the corresponding status dict and string
         # NOTE: This is a recursive function so only run this thread on the upper-most level
         self.autoUpdateStatusDictAndStringThread = None
-        self.addStatusFieldTuple("autoUpdateStatusDictAndStringThreadActive", False) # false initially
+        self.autoUpdateStatusDictAndStringThreadActive = False # false initially
         
         # the point of this flag is to determine whether the autoUpdateStatusDictAndStringThreadTarget can be started from the current status object or not, since should only run this on the top-most level status object 
-        self.isTopLevelStatus = topLevel
+        self.isTopLevelStatusObject = topLevel
+    
+    @classmethod
+    def init_from_dict(cls, dict):
+        """
+        The dict should contain the necessary key:value pairs
+        """
+        alias = dict["alias"]
+        isTopLevelStatusObject = dict["isTopLevelStatusObject"]
+        debugModeOn = dict["debugModeOn"]
+        return Status(alias,isTopLevelStatusObject, debugModeOn)
         
+       
     def autoUpdateStatusDictAndStringThreadTarget(self):
-        while self.getStatusFieldTupleValue("autoUpdateStatusDictAndStringThreadActive") == True:
+        while self.autoUpdateStatusDictAndStringThreadActive == True:
             self.updateStatusDict()
             self.updateStatusString(True)
             time.sleep(0.5)
@@ -40,16 +60,16 @@ class Status:
         """
         The thread should only be started after there exist status field tuples in the corresponding instance
         """
-        if self.getStatusFieldTupleValue("autoUpdateStatusDictAndStringThreadActive") == False and self.isTopLevelStatus == True:
+        if self.autoUpdateStatusDictAndStringThreadActive == False and self.isTopLevelStatusObject == True:
             self.autoUpdateStatusDictAndStringThread = th.Thread(target=self.autoUpdateStatusDictAndStringThreadTarget)
-            self.setStatusFieldTupleValue("autoUpdateStatusDictAndStringThreadActive", True)
+            self.autoUpdateStatusDictAndStringThreadActive = True
             self.autoUpdateStatusDictAndStringThread.start()
         else:
             raise Exception("Could not start autoUpdateStatusDictAndStringThread")
         
     def terminateAutoUpdateStatusDictAndStringThread(self):
-        if self.getStatusFieldTupleValue("autoUpdateStatusDictAndStringThreadActive") == True:
-            self.setStatusFieldTupleValue("autoUpdateStatusDictAndStringThreadActive", False) # setting this to false exits the while loop of the target
+        if self.autoUpdateStatusDictAndStringThreadActive == True:
+            self.autoUpdateStatusDictAndStringThreadActive = False # setting this to false exits the while loop of the target
             
         else:
             raise Exception("Could not terminate autoUpdateStatusDictAndStringThread, check thread variables")
@@ -167,7 +187,7 @@ class Status:
                 print("Empty dict currently")
     
 def testCase():
-    status = Status(topLevel=True, debugMode=True)
+    status = Status(topLevel=True, debugModeOn=True)
 
     status.addStatusFieldTuple("testKey", "testValue")
     status.addStatusFieldTuple("testKey2", "testValue2")
@@ -182,7 +202,7 @@ def testCase():
     status.updateStatusString(True)
     print(status.statusString)
     
-    status1 = Status(topLevel=False, debugMode=False)
+    status1 = Status(topLevel=False, debugModeOn=False)
     status1.addStatusFieldTuple("testKey", "testValue")
     status1.addStatusFieldTuple("testKey2", "testValue2")
     status.addStatusFieldTuple("status1", status1)
@@ -200,7 +220,7 @@ def testCase():
     exit()
     
 def testCaseThread():
-    status = Status(topLevel=True, debugMode=True)
+    status = Status(topLevel=True, debugModeOn=True)
 
     status.addStatusFieldTuple("testKey", "testValue")
     status.addStatusFieldTuple("testKey2", "testValue2")
@@ -219,7 +239,7 @@ def testCaseThread():
     
     input("Input anything to add a sub-status object: ")
     
-    status1 = Status(topLevel=False, debugMode=False)
+    status1 = Status(topLevel=False, debugModeOn=False)
     status1.addStatusFieldTuple("testKey", "testValue")
     status1.addStatusFieldTuple("testKey2", "testValue2")
     status.addStatusFieldTuple("status1", status1)
@@ -235,4 +255,8 @@ def testCaseThread():
         
     
 if __name__ == "__main__":
-    testCaseThread()
+    from StatusTestCases import StatusTestCases
+    
+    StatusTestCases.initFromDict()
+    
+    exit()
