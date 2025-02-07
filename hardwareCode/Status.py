@@ -4,7 +4,11 @@ import threading as th
 
 
 class Status:
-    def __init__(self, alias, topLevel : bool, debugModeOn : bool):
+    
+    class FieldKeys:
+        ALIAS = "alias"
+    
+    def __init__(self, alias, isTopLevel : bool, debugModeOn : bool):
         """
         Initialize a Status class object.
         
@@ -20,29 +24,37 @@ class Status:
         
         self.debugMode = debugModeOn
         
-        self.addStatusFieldTuple("alias", alias) # The first tuple of the tuple list
-        
-        
         # flag for indicating that a status field value got changed
         # NOTE: Only accounts for changes in the current status level, sub status objects won't be accounted for (so basically this applies for all current level status field tuples that aren't status objects)
         self.statusFieldTuplesModified = False
+        
+        # initialize the tuples
+        fieldKeys = [value for key, value in Status.FieldKeys.__dict__.items() if not key.startswith("__")]
+        for fieldKey in fieldKeys:
+            self.addStatusFieldTuple(fieldKey, None)
+        
+        self.setStatusFieldTupleValue(Status.FieldKeys.ALIAS, alias) # The first tuple of the tuple list
+        
         # this is the thread that will use the status field value got changed flag to update the corresponding status dict and string
         # NOTE: This is a recursive function so only run this thread on the upper-most level
         self.autoUpdateStatusDictAndStringThread = None
         self.autoUpdateStatusDictAndStringThreadActive = False # false initially
         
         # the point of this flag is to determine whether the autoUpdateStatusDictAndStringThreadTarget can be started from the current status object or not, since should only run this on the top-most level status object 
-        self.isTopLevelStatusObject = topLevel
+        self.isTopLevelStatusObject = isTopLevel
     
     @classmethod
     def init_from_dict(cls, dict):
         """
         The dict should contain the necessary key:value pairs
         """
-        alias = dict["alias"]
+        # will be attributes of the status class
         isTopLevelStatusObject = dict["isTopLevelStatusObject"]
         debugModeOn = dict["debugModeOn"]
-        return Status(alias,isTopLevelStatusObject, debugModeOn)
+        
+        # will be tuples of the tuple list
+        alias = dict[Status.FieldKeys.ALIAS]
+        return Status(alias,isTopLevelStatusObject,debugModeOn)
         
        
     def autoUpdateStatusDictAndStringThreadTarget(self):
@@ -95,7 +107,7 @@ class Status:
         
         try:
             self.getStatusFieldTupleUsingKey(statusFieldKey)
-            # if this runs, it means duplicate
+            # if this runs successfully, it means duplicate
             keyAlreadyExist = True
             raise Exception("Tried adding tuple with duplicate key")
         except Exception as e:
@@ -182,12 +194,12 @@ class Status:
             if includeHorizontalLines == True:
                 self.statusString += "\n---------------------------------------------"
         else:
-            self.status = "Status dict empty right now"
+            self.statusString = "Status dict empty right now"
             if self.debugMode == True:
                 print("Empty dict currently")
     
 def testCase():
-    status = Status(topLevel=True, debugModeOn=True)
+    status = Status(isTopLevel=True, debugModeOn=True)
 
     status.addStatusFieldTuple("testKey", "testValue")
     status.addStatusFieldTuple("testKey2", "testValue2")
@@ -202,7 +214,7 @@ def testCase():
     status.updateStatusString(True)
     print(status.statusString)
     
-    status1 = Status(topLevel=False, debugModeOn=False)
+    status1 = Status(isTopLevel=False, debugModeOn=False)
     status1.addStatusFieldTuple("testKey", "testValue")
     status1.addStatusFieldTuple("testKey2", "testValue2")
     status.addStatusFieldTuple("status1", status1)
@@ -220,7 +232,7 @@ def testCase():
     exit()
     
 def testCaseThread():
-    status = Status(topLevel=True, debugModeOn=True)
+    status = Status(isTopLevel=True, debugModeOn=True)
 
     status.addStatusFieldTuple("testKey", "testValue")
     status.addStatusFieldTuple("testKey2", "testValue2")
@@ -239,7 +251,7 @@ def testCaseThread():
     
     input("Input anything to add a sub-status object: ")
     
-    status1 = Status(topLevel=False, debugModeOn=False)
+    status1 = Status(isTopLevel=False, debugModeOn=False)
     status1.addStatusFieldTuple("testKey", "testValue")
     status1.addStatusFieldTuple("testKey2", "testValue2")
     status.addStatusFieldTuple("status1", status1)
@@ -255,8 +267,9 @@ def testCaseThread():
         
     
 if __name__ == "__main__":
+    # Import from test cases to test
     from StatusTestCases import StatusTestCases
     
-    StatusTestCases.initFromDict()
+    StatusTestCases.threadTestCase()
     
     exit()
