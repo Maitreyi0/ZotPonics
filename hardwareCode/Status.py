@@ -124,7 +124,7 @@ class Status:
         
         self.statusFieldTuplesModified = True
         
-    def getStatusFieldTupleValue(self, statusFieldKey):
+    def getStatusFieldTupleValueUsingKey(self, statusFieldKey):
         """
         Need the status field key in order to get the status field value
         """
@@ -198,73 +198,11 @@ class Status:
             if self.debugMode == True:
                 print("Empty dict currently")
     
-def testCase():
-    status = Status(isTopLevel=True, debugModeOn=True)
-
-    status.addStatusFieldTuple("testKey", "testValue")
-    status.addStatusFieldTuple("testKey2", "testValue2")
-    
-    status.updateStatusDict()
-    status.updateStatusString(True)
-    print(status.statusString)
-    
-    status.setStatusFieldTupleValue("testKey2", "newTestValue2")
-    
-    status.updateStatusDict()
-    status.updateStatusString(True)
-    print(status.statusString)
-    
-    status1 = Status(isTopLevel=False, debugModeOn=False)
-    status1.addStatusFieldTuple("testKey", "testValue")
-    status1.addStatusFieldTuple("testKey2", "testValue2")
-    status.addStatusFieldTuple("status1", status1)
-    
-    status.updateStatusDict()
-    status.updateStatusString(True)
-    print(status.statusString)
-    
-    status1.setStatusFieldTupleValue("testKey", "newTestValue")
-    
-    status.updateStatusDict()
-    status.updateStatusString(True)
-    print(status.statusString)
-    
-    exit()
-    
-def testCaseThread():
-    status = Status(isTopLevel=True, debugModeOn=True)
-
-    status.addStatusFieldTuple("testKey", "testValue")
-    status.addStatusFieldTuple("testKey2", "testValue2")
-    
-    status.startAutoUpdateStatusDictAndStringThread()
-    
-    time.sleep(2)
-    print(status.statusString)
-    
-    input("Input anything to modify field, testKey2, to have newTestValue2: ")
-    
-    status.setStatusFieldTupleValue("testKey2", "newTestValue2")
-    
-    time.sleep(2)
-    print(status.statusString)
-    
-    input("Input anything to add a sub-status object: ")
-    
-    status1 = Status(isTopLevel=False, debugModeOn=False)
-    status1.addStatusFieldTuple("testKey", "testValue")
-    status1.addStatusFieldTuple("testKey2", "testValue2")
-    status.addStatusFieldTuple("status1", status1)
-    
-    time.sleep(2)
-    print(status.statusString)
-    
-    input("Input anything to end program: ")
-    
-    status.terminateAutoUpdateStatusDictAndStringThread()
-    
-    exit()
-        
+    def returnAutoUpdatedStatusString(self):
+        if self.autoUpdateStatusDictAndStringThreadActive:
+            return self.statusString
+        else:
+            raise Exception("The auto update thread is not active")
     
 if __name__ == "__main__":
     # Import from test cases to test

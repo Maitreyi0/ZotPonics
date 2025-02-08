@@ -70,7 +70,10 @@ class MenuManagementSystem:
 
         if not self.command_queue.full():
             self.command_queue.put(command)
-            print(f"Command '{user_input}' enqueued with arguments {args}.")
+            if args:
+                print(f"Command '{user_input}' enqueued with arguments {args}.")
+            else:
+                print(f"Command '{user_input}' enqueued, does not require arguments")
         else:
             print("Command queue is full. Please wait.")
 
@@ -128,6 +131,17 @@ class MenuManagementSystem:
         if self.processing_thread is not None:
             self.processing_thread.join()
             print("Command processing thread has stopped.")
+            
+    def mass_add_options_to_menu_management_system(self, alias, list_of_methods_to_add_as_options ):
+      """
+      :param list_of_methods_to_add_as_options: This should be a list of function signatures
+      """
+      for method_to_add_as_option in list_of_methods_to_add_as_options:
+         
+         option_name = f"[{alias}]-{method_to_add_as_option.__name__}"
+         option_target_function = method_to_add_as_option
+         
+         self.add_option(option_name, option_target_function)
 
 if __name__ == "__main__":
     MenuManagementSystemTestCases.multi_thread_test_case()

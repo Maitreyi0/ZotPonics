@@ -106,19 +106,23 @@ class PumpWater:
 
         print("Automatic pump thread stopping.")
     
-    def startAutomaticThread(self, on_duration, off_duration):
-        if self.status.getStatusFieldTupleValue(PumpWater.FieldKeys.MODE) == "Automatic" and self.automaticThreadActive == False:
+    def start_automatic_thread(self, on_duration, off_duration):
+        if self.status.getStatusFieldTupleValueUsingKey(PumpWater.FieldKeys.MODE) == "Automatic" and self.automaticThreadActive == False:
             self.automaticThreadActive = True
             self.automaticThread = th.Thread(target=self.automaticThreadTarget, args=[on_duration, off_duration])
             self.automaticThread.start()
             
-    def terminateAutomaticThread(self):
+    def start_automatic_thread_wrapper_for_console_program(self, on_duration_str, off_duration_str):
+        self.start_automatic_thread(int(on_duration_str), int(off_duration_str))
+            
+    def terminate_automatic_thread(self):
         """
         Terminating the thread
         """
         if self.automaticThreadActive == True:
             self.automaticThreadActive = False
             self.automaticThread.join()
+            self.turn_off() # just turn off in the case that we are on the active portion of the cycle when terminating
             self.automaticThread = None
         else:
             raise Exception("Could not terminate AutomaticThread, check thread variables")
@@ -126,13 +130,13 @@ class PumpWater:
 
     # manual turn on and off, if manually controlling should call these
     def manual_turn_on_pump(self):
-        if self.status.getStatusFieldTupleValue(PumpWater.FieldKeys.MODE) == "Manual":
+        if self.status.getStatusFieldTupleValueUsingKey(PumpWater.FieldKeys.MODE) == "Manual":
             self.turn_on()
         else:
             print("Did not turn on pump, not in manual control mode")
             
     def manual_turn_off_pump(self):
-        if self.status.getStatusFieldTupleValue(PumpWater.FieldKeys.MODE) == "Manual":
+        if self.status.getStatusFieldTupleValueUsingKey(PumpWater.FieldKeys.MODE) == "Manual":
             self.turn_off()
         else:
             print("Did not turn off pump, not in manual control mode")
@@ -141,7 +145,7 @@ class PumpWater:
         """
         Switching to automatic will disable all manual control. Automatic mode threads are not automatically started
         """
-        if self.status.getStatusFieldTupleValue(PumpWater.FieldKeys.MODE) == "Manual":
+        if self.status.getStatusFieldTupleValueUsingKey(PumpWater.FieldKeys.MODE) == "Manual":
             self.status.setStatusFieldTupleValue(PumpWater.FieldKeys.MODE, "Automatic")
             # reset everything when switching
             self.set_pwm_duty_cycle(0)
@@ -153,11 +157,11 @@ class PumpWater:
         """
         Switching to manual will cause any running automatic mode threads to cancel
         """
-        if self.status.getStatusFieldTupleValue(PumpWater.FieldKeys.MODE) == "Automatic":
+        if self.status.getStatusFieldTupleValueUsingKey(PumpWater.FieldKeys.MODE) == "Automatic":
             
             # To handle the case when the automatic thread is running while switching to manual mode
             if self.automaticThreadActive:
-                self.terminateAutomaticThread()
+                self.terminate_automatic_thread()
             
             self.status.setStatusFieldTupleValue(PumpWater.FieldKeys.MODE, "Manual")
             # reset everything
@@ -186,13 +190,23 @@ class PumpWater:
             self.pwm.ChangeDutyCycle(duty_cycle)
         else:
             raise ValueError("Duty cycle must be between 0 and 100")
+        
+    def set_pwm_duty_cycle_wrapper_for_console_program(self, duty_cycle_str):
+        """
+        This is necessary b/c console input is stored as string by default
+        """
+        duty_cycle = int(duty_cycle_str)
+        self.set_pwm_duty_cycle(duty_cycle)
 
-    def cleanup(self):
-        """Clean up GPIO resources."""
-        self.pwm.stop()
-        self.turn_off()
-        if self.status.getStatusFieldTupleValue(PumpWater.FieldKeys.MODE) == "Automatic":
-            self.switch_to_manual() # Switch to manual before closing since this action terminates active automatic threads for us
+    def shutdown(self):
+        """
+        Shuts down this subsystem's activity
+        """
+        self.pwm.stop() # Frees up the gpio pin reserved for pwm
+        self.turn_off() # Turn off the motor for the driver
+        if self.status.getStatusFieldTupleValueUsingKey(PumpWater.FieldKeys.MODE) == "Automatic":
+            self.switch_to_manual() # Switch to manual before closing since this action terminates active automatic threads for us automatically
+            
         # CONVENTION: GPIO Setup and Cleanup done by outermost entity
         if self.status.isTopLevelStatusObject:
             GPIO_Utility.gpioCleanup()
@@ -200,5 +214,6 @@ class PumpWater:
 if __name__ == "__main__":
     from PumpWaterTestCases import PumpWaterTestCases
     
-    PumpWaterTestCases.testAutoCycleThread()
+    PumpWaterTestCases.testPumpDriverBasic()
+    
     exit()

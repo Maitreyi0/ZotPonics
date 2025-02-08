@@ -1,17 +1,19 @@
+import pdb; # for debugging purposes
 import threading
 import queue
 import time
 import GPIO_Utility
 import RPi.GPIO as GPIO
-from pH_AndEC_Subsystem import pH_AndEC_Subsystem
-from AtlasI2C_SensorAndPumps import AtlasI2C_SensorAndPumps
+# from pH_AndEC_Subsystem import pH_AndEC_Subsystem
+# from AtlasI2C_SensorAndPumps import AtlasI2C_SensorAndPumps
 from MenuManagementSystem import MenuManagementSystem
 from MenuManagementSystemTestCases import greet_user, add_numbers
 from ConsoleProgram import ConsoleProgram
 from Status import Status
-from hardwareCode.PeristalticPump import PeristalticPump
+from PeristalticPump import PeristalticPump
 from AtlasI2C_Sensor import AtlasI2C_Sensor
 from FileOutputManagementSystem import FileOutputManagementSystem
+from PumpWater import PumpWater
 
 def find_all_status_objects_with_alias(obj, recurse_classes, visited=None):
    """
@@ -36,7 +38,7 @@ def find_all_status_objects_with_alias(obj, recurse_classes, visited=None):
    # If the object is a Status object, add it to the results
    if isinstance(obj, Status):
       try:
-         alias_value = obj.getStatusFieldTupleValue("alias")
+         alias_value = obj.getStatusFieldTupleValueUsingKey("alias")
       except AttributeError:
          alias_value = None
       found_dict[obj] = alias_value
@@ -65,17 +67,27 @@ class OverallSystem:
    """
    This class will bring everything together
    
-   Current Components Supported:
-   - User Interface Components:
-      - console
-   - Hydroponics System Components:
-      - pH subsystem
+   Current Subsystems Supported:
+   - UI:
+      - Console
+   - Hydroponics Subsystems:
+      - Water Pump
    """
-   def __init__(self, phAndEC_Subsystem=None, menuManagementSystem=None, phSubsystem=None, ecSubsystem=None, consoleProgram=None):
+   # Can initialize with variable number of subsystems, for modularity
+   def __init__(self, statusArgsDict, menuManagementSystem=None, pH_Subsystem=None, EC_Subsystem=None, consoleProgram=None):
+      # If both pH and EC subsystems are provided will create the pH and EC combined subsystem
+      if pH_Subsystem != None and EC_Subsystem != None:
+         None
+         # self.pH_AndEC_Subsystem = pH_AndEC_Subsystem()
       
-      self.status = Status(topLevel=True, debugModeOn=False)
+      statusArgsDict = {}
+      statusArgsDict["alias"] = "OverallSystem"
+      statusArgsDict["isTopLevelStatusObject"] = True
+      statusArgsDict["debugModeOn"] = True
+      
+      self.status = Status.init_from_dict(statusArgsDict)
       self.status.addStatusFieldTuple("alias", "overallSystem")
-      self.status.addStatusFieldTuple("phSubsystem", phSubsystem.status)
+      # self.status.addStatusFieldTuple("phSubsystem", pH_Subsystem.status)
       
       # store menu management system object
       self.menuManagementSystem = menuManagementSystem
@@ -83,12 +95,11 @@ class OverallSystem:
       self.consoleProgram = consoleProgram
       
       # pH and EC subsystems
-      self.phAndEC_Subsystem = phAndEC_Subsystem # overall subsystem
-      self.phSubsystem = phSubsystem # pH subsystem
-      self.ecSubsystem = ecSubsystem # EC subsystem
+      self.phSubsystem = pH_Subsystem # pH subsystem
+      self.ecSubsystem = EC_Subsystem # EC subsystem
       
       # status objects
-      self.statusObjectsDict = find_all_status_objects_with_alias(self, (OverallSystem, AtlasI2C_Sensor, PeristalticPump, AtlasI2C_SensorAndPumps)) # this will keep track of all the status objects for easier accessing
+      # self.statusObjectsDict = find_all_status_objects_with_alias(self, (OverallSystem, AtlasI2C_Sensor, PeristalticPump, AtlasI2C_SensorAndPumps)) # this will keep track of all the status objects for easier accessing
       
    def get_status_string_by_alias(self, alias):
     """
@@ -122,63 +133,67 @@ class OverallSystem:
       print("Values in the dictionary:")
       for value in self.statusObjectsDict.values():
          print(value)
+
+   def shutdown(self):
+      if self.status.isTopLevelStatusObject:
+            GPIO_Utility.gpioCleanup()
+            
+   @classmethod
+   def init_overall_system_script(cls, includePumpWater : bool = False, includePH : bool = False, includeEC : bool = False):
+      None
       
 
 if __name__ == "__main__":
    
-   # Set mode of GPIO
-   GPIO_Utility.setModeBCM()
+   from OverallSystemTestCases import OverallSystemTestCases
    
-   # pump variables for reference
-   pH_UpPin = 22
-   pH_DownPin = 23
-   baseA_Pin = 20
-   baseB_Pin = 21
+   OverallSystemTestCases.startOverallSystemAsConsoleProgram()
    
-   # INITIALIZATION OF PH SUBSYSTEM
-   phPumpsList = []
-   phPumpsList.append(PeristalticPump(pH_DownPin, "phDown", False, False))
-   phPumpsList.append(PeristalticPump(pH_UpPin, "phUp", False, False))
+   # # Set mode of GPIO
+   # GPIO_Utility.setModeBCM()
    
-   phFileOutputManagementSystem = FileOutputManagementSystem(fileName="AtlasI2C_SensorAndPumps.log", includeTimeStamp=True)
+   # # pump variables for reference
+   # pH_UpPin = 22
+   # pH_DownPin = 23
+   # baseA_Pin = 20
+   # baseB_Pin = 21
    
-   phSensor = AtlasI2C_Sensor(AtlasI2C_Sensor.PH_SENSOR_KEY_WORD, debugMode=True, contPollThreadIndependent=False, isOutermostEntity=False, generateMatPlotLibImages=True, alias="phSensor", fileOutputManagementSystem=phFileOutputManagementSystem)
+   # # INITIALIZATION OF PH SUBSYSTEM
+   # phPumpsList = []
+   # phPumpsList.append(PeristalticPump(pH_DownPin, "phDown", False, False))
+   # phPumpsList.append(PeristalticPump(pH_UpPin, "phUp", False, False))
    
-   phSubsystem = AtlasI2C_SensorAndPumps(alias="phSubsystem", sensor=phSensor, pumpsList=phPumpsList, debugMode=True, isOutermostEntity=True)
+   # phFileOutputManagementSystem = FileOutputManagementSystem(fileName="AtlasI2C_SensorAndPumps.log", includeTimeStamp=True)
+   
+   # phSensor = AtlasI2C_Sensor(AtlasI2C_Sensor.PH_SENSOR_KEY_WORD, debugMode=True, contPollThreadIndependent=False, isOutermostEntity=False, generateMatPlotLibImages=True, alias="phSensor", fileOutputManagementSystem=phFileOutputManagementSystem)
+   
+   # phSubsystem = AtlasI2C_SensorAndPumps(alias="phSubsystem", sensor=phSensor, pumpsList=phPumpsList, debugMode=True, isOutermostEntity=True)
    
    
-   # INITIALIZATION OF MENU
-   # Create an instance of MenuManagementSystem with a 2-second processing interval
-   menu_system = MenuManagementSystem()
-   # Add options to the menu system
+   # # INITIALIZATION OF CONSOLE PROGRAM
+   # consoleProgram = ConsoleProgram(menu_system)
    
-   # INITIALIZATION OF CONSOLE PROGRAM
-   consoleProgram = ConsoleProgram(menu_system)
+   # # INITIALIZATION OF OVERALL SYSTEM
+   # overallSystem = OverallSystem(menuManagementSystem=menu_system, consoleProgram=consoleProgram, pH_Subsystem=phSubsystem)
    
-   # INITIALIZATION OF OVERALL SYSTEM
-   overallSystem = OverallSystem(menuManagementSystem=menu_system, consoleProgram=consoleProgram, phSubsystem=phSubsystem)
+   # # overallSystem.status.updateStatusDict()
+   # # overallSystem.status.updateStatusString(True)
+   # overallSystem.phSubsystem.status.updateStatusDict()
+   # overallSystem.phSubsystem.status.updateStatusString(True)
    
-   # overallSystem.status.updateStatusDict()
-   # overallSystem.status.updateStatusString(True)
-   overallSystem.phSubsystem.status.updateStatusDict()
-   overallSystem.phSubsystem.status.updateStatusString(True)
+   # overallSystem.menuManagementSystem.add_option("add numbers", add_numbers)
+   # overallSystem.menuManagementSystem.add_option("greet person", greet_user)
+   # overallSystem.menuManagementSystem.add_option("get status", overallSystem.print_status_string_by_alias)
+   # overallSystem.menuManagementSystem.add_option("print status aliases", overallSystem.print_dict_keys)
    
-   overallSystem.menuManagementSystem.add_option("add numbers", add_numbers)
-   overallSystem.menuManagementSystem.add_option("greet person", greet_user)
-   overallSystem.menuManagementSystem.add_option("get status", overallSystem.print_status_string_by_alias)
-   overallSystem.menuManagementSystem.add_option("print status aliases", overallSystem.print_dict_keys)
+   # # Start the console program to send commands to menu system
+   # consoleProgram.start()
+   
+   # consoleProgram.wait_until_exit()
 
-   # Start the menu system's queue processing in a separate thread
-   menu_system.start_processing()
-   
-   # Start the console program to send commands to menu system
-   consoleProgram.start()
-   
-   consoleProgram.wait_until_exit()
-
-   print("Console program has fully exited, but menu processing continues.")
-   menu_system.stop_processing()
-   print("Menu processing has stopped.")
+   # print("Console program has fully exited, but menu processing continues.")
+   # menu_system.stop_processing()
+   # print("Menu processing has stopped.")
    
    
    
