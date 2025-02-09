@@ -156,6 +156,80 @@ def retrieve_most_recent_pump():
         print(f"Error: {err}")
         return None
 
+def retrieve_most_recent_command():
+    """Fetches the most recent command from the requests table."""
+    try:
+        conn = mysql.connector.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME
+        )
+        cursor = conn.cursor()
+
+        query = "SELECT command FROM requests ORDER BY timestamp DESC LIMIT 1"
+        cursor.execute(query)
+        result = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        return result[0] if result else None  # Return command or None if table is empty
+
+    except mysql.connector.Error as err:
+        print(f"Error: {err}")
+        return None
+
+def retrieve_most_recent_arguments():
+    """Fetches the most recent arguments from the requests table."""
+    try:
+        conn = mysql.connector.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME
+        )
+        cursor = conn.cursor()
+
+        query = "SELECT arguments FROM requests ORDER BY timestamp DESC LIMIT 1"
+        cursor.execute(query)
+        result = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if result and result[0]:  # Ensure result is not None or empty
+            return result[0].split(',')  # Split arguments by comma and return as a list
+        else:
+            return []  # Return empty list if no arguments are found
+
+    except mysql.connector.Error as err:
+        print(f"Error: {err}")
+        return None
+
+def retrieve_most_recent_func():
+    """Fetches the most recent command from the requests table."""
+    try:
+        conn = mysql.connector.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME
+        )
+        cursor = conn.cursor()
+
+        query = "SELECT func FROM requests ORDER BY timestamp DESC LIMIT 1"
+        cursor.execute(query)
+        result = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        return result[0] if result else None  # Return func or None if table is empty
+
+    except mysql.connector.Error as err:
+        print(f"Error: {err}")
+        return None
 
 ''' TESTING
 insert_data('MANUAL', 5.0, 2.0, 'OFF')
