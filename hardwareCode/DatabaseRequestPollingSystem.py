@@ -10,7 +10,7 @@ class DatabaseRequestPollingSystem:
         REQUEST_POLLING_THREAD_ACTIVE = "requestPollingThreadActive"
         
     
-    def __init__(self, menu_management_system : MenuManagementSystem):
+    def __init__(self, menu_management_system : MenuManagementSystem, statusArgsDict):
         if menu_management_system == None:
             raise Exception("Menu Management System is none")
         self.menu_management_system = menu_management_system
@@ -18,6 +18,16 @@ class DatabaseRequestPollingSystem:
         # thread variables
         self.pollingThreadActive = False
         self.pollingThread = None
+        
+        self.status : Status = Status.init_from_dict(statusArgsDict)
+        
+        # add additional field keys
+        fieldKeys = [value for key, value in DatabaseRequestPollingSystem.FieldKeys.__dict__.items() if not key.startswith("__")]
+        for fieldKey in fieldKeys:
+            self.status.addStatusFieldTuple(fieldKey, None)
+            
+        self.status.setStatusFieldTupleValue(DatabaseRequestPollingSystem.FieldKeys.REQUEST_POLLING_THREAD_ACTIVE, False)
+        
         
     
     def retrieveCommand(self):
@@ -70,3 +80,5 @@ class DatabaseRequestPollingSystem:
             self.pollingThread = None
 
 
+if __name__ == "__main__":
+    
