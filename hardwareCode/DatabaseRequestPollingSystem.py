@@ -1,5 +1,5 @@
 from MenuManagementSystem import MenuManagementSystem
-from MYSQL import (retrieve_most_recent_command, retrieve_most_recent_arguments, retrieve_most_recent_func)
+from MYSQL import retrieve_most_recent_command, retrieve_most_recent_arguments
 import threading
 import time
 from Status import Status
@@ -8,8 +8,8 @@ class DatabaseRequestPollingSystem:
     
     class FieldKeys(Status.FieldKeys):
         REQUEST_POLLING_THREAD_ACTIVE = "requestPollingThreadActive"
+        DEBUG_RETRIEVAL = "debugRetrieval"
         
-    
     def __init__(self, menu_management_system : MenuManagementSystem, statusArgsDict):
         if menu_management_system == None:
             raise Exception("Menu Management System is none")
@@ -28,7 +28,7 @@ class DatabaseRequestPollingSystem:
             
         self.status.setStatusFieldTupleValue(DatabaseRequestPollingSystem.FieldKeys.REQUEST_POLLING_THREAD_ACTIVE, False)
         
-        
+        self.status.setStatusFieldTupleValue(DatabaseRequestPollingSystem.FieldKeys.DEBUG_RETRIEVAL, False) # Will initialize as false, have to turn it on for debug
     
     def retrieveCommand(self):
         
@@ -42,7 +42,11 @@ class DatabaseRequestPollingSystem:
                 arguments.pop(i)
                 break # expecting at most one instance of 'self'
 
-        self.menu_management_system.enqueue_command(command, *arguments)
+        if self.status.getStatusFieldTupleValueUsingKey(DatabaseRequestPollingSystem.FieldKeys.DEBUG_RETRIEVAL) == True:
+            print("Won't enqueue command, just retrieving")
+            print(f"Retrieved Command: {command}, Retrieved Arguments: {arguments}")
+        else:
+            self.menu_management_system.enqueue_command(command, *arguments)
 
         # this supports at most 3 arguments
         # if len(arguments) == 1:
@@ -58,10 +62,6 @@ class DatabaseRequestPollingSystem:
         #     self.menu_management_system.enqueue_command(command)
         #     print("Arguments: 0")
 
-
-
-        #print("Registered commands:", self.menu.options)
-
     def polling_thread_target(self):
         while self.pollingThreadActive:
             self.retrieveCommand()
@@ -70,8 +70,8 @@ class DatabaseRequestPollingSystem:
     def start_polling_thread(self):
         if not self.pollingThreadActive:
             self.pollingThread = threading.Thread(target=self.polling_thread_target, daemon=True) # use daemon for insurance
-            self.pollingThread.start()
             self.pollingThreadActive = True
+            self.pollingThread.start()
 
     def terminate_polling_thread(self):
         if self.pollingThreadActive:
@@ -81,4 +81,8 @@ class DatabaseRequestPollingSystem:
 
 
 if __name__ == "__main__":
+    import DatabaseRequestPollingSystemTestCases
     
+    DatabaseRequestPollingSystemTestCases.test_poll_thread_debug()
+    
+    exit()
