@@ -211,9 +211,9 @@ def retrieve_most_recent_command():
 
             # Fetch the result
         result = cursor.fetchone()
-        print(result)
         cursor.close()
         conn.close()
+        return result
 
 def retrieve_most_recent_arguments():
     sshtunnel.SSH_TIMEOUT = 20.0
@@ -245,7 +245,7 @@ def retrieve_most_recent_arguments():
             return []  # Return empty list if no arguments are found
         
 #TESTING
-retrieve_most_recent_command()
-retrieve_most_recent_arguments()
-
-
+if __name__ == "__main__":
+    retrieve_most_recent_command()
+    retrieve_most_recent_arguments()
+    
