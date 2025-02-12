@@ -144,4 +144,4 @@ class MenuManagementSystem:
          self.add_option(option_name, option_target_function)
 
 if __name__ == "__main__":
-    MenuManagementSystemTestCases.multi_thread_test_case()
+    MenuManagementSystemTestCases.single_thread_test_case()
