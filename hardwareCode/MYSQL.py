@@ -37,7 +37,7 @@ def insert_data_sensor(mode, pH, EC, pump):
     except mysql.connector.Error as err:
         print(f"Error: {err}")
 
-def insert_data_requests(command, func, arguments):
+def insert_data_requests(command, arguments):
     try:
         with sshtunnel.SSHTunnelForwarder(
             ('ssh.pythonanywhere.com'),
@@ -58,7 +58,7 @@ def insert_data_requests(command, func, arguments):
                 arguments_str = str(arguments)
             # Corrected query to match your table columns
             query = "INSERT INTO requests (command, func, arguments) VALUES (%s, %s, %s)"
-            cursor.execute(query, (command, func, arguments_str))
+            cursor.execute(query, (command, None, arguments_str))
             conn.commit()
 
             print("Data inserted successfully!")
@@ -295,7 +295,10 @@ def delete_most_recent_row(table_name):
     except mysql.connector.Error as err:
         print(f"Error: {err}")
 
-def retrieve_most_recent_request():
+def retrieve_most_recent_request() -> tuple:
+    """
+    The returned tuple will have 3 items, i.e., (primary key, command, arguments)
+    """
     sshtunnel.SSH_TIMEOUT = 20.0
     sshtunnel.TUNNEL_TIMEOUT = 20.0
 
@@ -321,6 +324,27 @@ def retrieve_most_recent_request():
         conn.close()
 
         return result
+    
+def pop_most_recent_request(delete_from_table : bool) -> tuple:
+    """
+    This will retrieve the most recent request and pop it from the database
+    
+    NOTE: primary key = id
+    """
+    
+    request_entry = retrieve_most_recent_request()
+    
+    primary_key = request_entry[0]
+    command = request_entry[1]
+    args_list = request_entry[2]
+    
+    if delete_from_table == True:
+        delete_request_by_id(primary_key)
+        
+    return [command, args_list]
+    
+    
+    
 
 def delete_request_by_id(id):
     sshtunnel.SSH_TIMEOUT = 20.0
@@ -345,9 +369,68 @@ def delete_request_by_id(id):
         cursor.close()
         conn.close()
         
+def retrieve_current_number_of_requests() -> tuple:
+    sshtunnel.SSH_TIMEOUT = 20.0
+    sshtunnel.TUNNEL_TIMEOUT = 20.0
+
+    with sshtunnel.SSHTunnelForwarder(
+            ('ssh.pythonanywhere.com'),
+            ssh_username='superlords1', ssh_password='BinhAn@1962',
+            remote_bind_address=('superlords1.mysql.pythonanywhere-services.com', 3306)
+    ) as tunnel:
+        conn = MySQLdb.connect(
+            user='superlords1',
+            passwd='zotponics123',
+            host='127.0.0.1',
+            port=tunnel.local_bind_port,
+            db='superlords1$default',
+    )
+        cursor = conn.cursor()
+
+        query = "SELECT COUNT(*) AS total_rows FROM requests"
+        cursor.execute(query)
+
+        result = cursor.fetchone()  # Returns (id, command, arguments) or None if no row exists
+        cursor.close()
+        conn.close()
+
+        return result
+    
+def delete_all_entries() -> None:
+    """
+    The point of this is to clear the table. Most likely won't use during normal operation but can be used for testing
+    """
+    
+    sshtunnel.SSH_TIMEOUT = 20.0
+    sshtunnel.TUNNEL_TIMEOUT = 20.0
+
+    with sshtunnel.SSHTunnelForwarder(
+            ('ssh.pythonanywhere.com'),
+            ssh_username='superlords1', ssh_password='BinhAn@1962',
+            remote_bind_address=('superlords1.mysql.pythonanywhere-services.com', 3306)
+    ) as tunnel:
+        conn = MySQLdb.connect(
+            user='superlords1',
+            passwd='zotponics123',
+            host='127.0.0.1',
+            port=tunnel.local_bind_port,
+            db='superlords1$default',
+    )
+        cursor = conn.cursor()
+
+        query = "SELECT COUNT(*) AS total_rows FROM requests"
+        cursor.execute(query)
+        
+        cursor.close()
+        conn.close()
+        
 #TESTING
 if __name__ == "__main__":
-    #insert_data_requests('test', 'test', [1, 2, 3])
-    delete_request_by_id(4)
-
     
+    # example usage of insert_data_requests insert_data_requests('test', 'test', [1, 2, 3])
+    
+    print(f"The current number of requests is: {retrieve_current_number_of_requests()}")
+    
+    insert_data_requests(command="set_pwm_duty_cycle", arguments=[50])
+    
+    print(f"The current number of requests is: {retrieve_current_number_of_requests()}")
