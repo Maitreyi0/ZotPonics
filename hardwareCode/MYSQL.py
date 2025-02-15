@@ -37,7 +37,7 @@ def insert_data_sensor(mode, pH, EC, pump):
     except mysql.connector.Error as err:
         print(f"Error: {err}")
 
-def insert_data_requests(command, arguments):
+def insert_requests_table(command, arguments):
     try:
         with sshtunnel.SSHTunnelForwarder(
             ('ssh.pythonanywhere.com'),
@@ -325,11 +325,13 @@ def retrieve_most_recent_request() -> tuple:
 
         return result
     
-def pop_most_recent_request(delete_from_table : bool) -> tuple:
+def pop_most_recent_request() -> tuple:
     """
     This will retrieve the most recent request and pop it from the database
     
-    NOTE: primary key = id
+    IMPORTANT: The returned tuple will have every element as a string (so would need wrapper methods for the base hardware component class methods)
+    
+    SIDE NOTE: primary key = id
     """
     
     request_entry = retrieve_most_recent_request()
@@ -338,8 +340,7 @@ def pop_most_recent_request(delete_from_table : bool) -> tuple:
     command = request_entry[1]
     args_list = request_entry[2]
     
-    if delete_from_table == True:
-        delete_request_by_id(primary_key)
+    delete_request_by_id(primary_key)
         
     return [command, args_list]
     
@@ -426,11 +427,6 @@ def delete_all_entries() -> None:
         
 #TESTING
 if __name__ == "__main__":
+    import MYSQL_TestCases
     
-    # example usage of insert_data_requests insert_data_requests('test', 'test', [1, 2, 3])
-    
-    print(f"The current number of requests is: {retrieve_current_number_of_requests()}")
-    
-    insert_data_requests(command="set_pwm_duty_cycle", arguments=[50])
-    
-    print(f"The current number of requests is: {retrieve_current_number_of_requests()}")
+    MYSQL_TestCases.test_insert_and_delete()
