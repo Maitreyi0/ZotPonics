@@ -1,12 +1,14 @@
 from flask import Flask, jsonify, request, render_template, redirect, url_for, send_file
 from Status import Status
-#from AtlasI2C_Sensor import AtlasI2C_Sensor
-#from pPump import PeristalticPump
 import time
 import random
 import threading as th
 from CircularBuffer import CircularBuffer
 from MYSQL import (
+    insert_pH_data,
+    insert_ec_data,
+    insert_mode,
+    insert_pump,
     retrieve_most_recent_pH,
     retrieve_most_recent_ec,
     retrieve_most_recent_mode,
@@ -15,71 +17,9 @@ from MYSQL import (
 import matplotlib
 from matplotlib import pyplot as plt
 import os
-
 matplotlib.use('Agg')  # Set backend to Agg for non-GUI rendering
 
 mode = True
-# Temporary classes - REMOVE WHEN TESTING
-class MockAtlasI2C_Sensor:
-    def __init__(self, keyword: str, writeDataToCSV: bool, debugMode: bool, contPollThreadIndependent: bool, isOutermostEntity: bool):
-        self.status = Status(isOutermostEntity, debugMode)
-        self.status.addStatusFieldTuple("keyword", keyword)
-        self.status.addStatusFieldTuple("latestReading", None)
-        self.status.addStatusFieldTuple("contPollingThreadActive", False)
-
-        self.deviceKeyword = keyword
-        self.polling_thread = None
-
-
-
-class MockPeristalticPump:
-    def __init__(self, pin, alias, isOutermostEntity, debugMode):
-        self.status = Status(isOutermostEntity, debugMode)
-        self.status.addStatusFieldTuple("alias", alias)
-        self.status.addStatusFieldTuple("pin", pin)
-        self.status.addStatusFieldTuple("pumpActive", False)
-        self.status.addStatusFieldTuple("activeDescription", "Off")
-
-        self.alias = alias
-        self.debugMode = debugMode
-        self.duration_thread = None
-
-    def turnOn(self):
-        if not self.status.getStatusFieldTupleValue("pumpActive"):
-            self.status.setStatusFieldTupleValue("pumpActive", True)
-            self.status.setStatusFieldTupleValue("activeDescription", "On, with no set duration")
-            if self.debugMode:
-                print(f"{self.alias} turned on.")
-        else:
-            if self.debugMode:
-                print(f"{self.alias} is already on.")
-
-    def turnOff(self):
-        if self.status.getStatusFieldTupleValue("pumpActive"):
-            self.status.setStatusFieldTupleValue("pumpActive", False)
-            self.status.setStatusFieldTupleValue("activeDescription", "Off")
-            if self.debugMode:
-                print(f"{self.alias} turned off.")
-        else:
-            if self.debugMode:
-                print(f"{self.alias} is already off.")
-
-    def turnOnWithDuration(self, seconds):
-        if not self.status.getStatusFieldTupleValue("pumpActive"):
-            self.status.setStatusFieldTupleValue("pumpActive", True)
-            self.status.setStatusFieldTupleValue("activeDescription", f"On, with duration of {seconds} seconds")
-            if self.debugMode:
-                print(f"{self.alias} turned on for {seconds} seconds.")
-
-            self.duration_thread = th.Thread(target=self._run_for_duration, args=(seconds,))
-            self.duration_thread.start()
-        else:
-            if self.debugMode:
-                print(f"{self.alias} is already on and cannot start again with a duration.")
-
-    def _run_for_duration(self, seconds):
-        time.sleep(seconds)
-        self.turnOff()
 
 # Generates a 2D line plot from the buffer data and saves it as an image
 def generate_plot(buffer, filename, label):
@@ -112,22 +52,6 @@ os.makedirs(plot_images_dir, exist_ok=True)
 # Initialize the circular buffers for pH and EC sensor readings
 ph_buffer = CircularBuffer(size=50)  # Stores the latest 50 pH readings
 ec_buffer = CircularBuffer(size=50)  # Stores the latest 50 EC readings
-
-# Temporary - REMOVE WHEN TESTING
-ph_sensor = MockAtlasI2C_Sensor(
-    keyword="pH", writeDataToCSV=False, debugMode=False,
-    contPollThreadIndependent=True, isOutermostEntity=True
-)
-ec_sensor = MockAtlasI2C_Sensor(
-    keyword="EC", writeDataToCSV=False, debugMode=False,
-    contPollThreadIndependent=True, isOutermostEntity=True
-)
-pump = MockPeristalticPump(pin=20, alias="MainPump", isOutermostEntity=True, debugMode=False)
-pHStatus = Status(topLevel=True, debugMode=False)
-ECStatus = Status(topLevel=True, debugMode=False)
-
-
-pHStatus.addStatusFieldTuple("pumpActive", "OFF")
 
 # Route for main menu
 @app.route('/')
@@ -190,20 +114,15 @@ def submit_form():
     new_mode = request.form.get('mode')
 
     try:
-        # Handle pump action
-        if pump_action == "on":
-            pump.turnOn()
-        elif pump_action == "off":
-            pump.turnOff()
-        elif pump_action == "on_with_duration" and duration:
-            pump.turnOnWithDuration(int(duration))
-
+        currentph = retrieve_most_recent_pH()
+        currentec = retrieve_most_recent_ec()
         # Handle mode change
         global mode
         if new_mode:
             if new_mode in ["automatic", "manual"]:
                 mode = new_mode
-
+        insert_mode(new_mode)
+        insert_pump(pump_action)
         return redirect(url_for('get_system_status_html'))
     except Exception as e:
         return f"Error: {str(e)}", 400
