@@ -45,7 +45,7 @@ class MockPeristalticPump:
         self.duration_thread = None
 
     def turnOn(self):
-        if not self.status.getStatusFieldTupleValue("pumpActive"):
+        if not self.status.getStatusFieldTupleValueUsingKey("pumpActive"):
             self.status.setStatusFieldTupleValue("pumpActive", True)
             self.status.setStatusFieldTupleValue("activeDescription", "On, with no set duration")
             if self.debugMode:
@@ -55,7 +55,7 @@ class MockPeristalticPump:
                 print(f"{self.alias} is already on.")
 
     def turnOff(self):
-        if self.status.getStatusFieldTupleValue("pumpActive"):
+        if self.status.getStatusFieldTupleValueUsingKey("pumpActive"):
             self.status.setStatusFieldTupleValue("pumpActive", False)
             self.status.setStatusFieldTupleValue("activeDescription", "Off")
             if self.debugMode:
@@ -65,7 +65,7 @@ class MockPeristalticPump:
                 print(f"{self.alias} is already off.")
 
     def turnOnWithDuration(self, seconds):
-        if not self.status.getStatusFieldTupleValue("pumpActive"):
+        if not self.status.getStatusFieldTupleValueUsingKey("pumpActive"):
             self.status.setStatusFieldTupleValue("pumpActive", True)
             self.status.setStatusFieldTupleValue("activeDescription", f"On, with duration of {seconds} seconds")
             if self.debugMode:
@@ -100,7 +100,7 @@ def generate_plot(buffer, filename, label):
 app = Flask(__name__)
 
 # Create a global instance of the Status class
-system_status = Status(topLevel=True, debugMode=False)
+system_status = Status(isTopLevel=True, debugMode=False)
 
 # Specify the directory path for hardwareCode and plotImages
 hardware_code_dir = os.path.join(os.getcwd(), "hardwareCode")
@@ -123,8 +123,8 @@ ec_sensor = MockAtlasI2C_Sensor(
     contPollThreadIndependent=True, isOutermostEntity=True
 )
 pump = MockPeristalticPump(pin=20, alias="MainPump", isOutermostEntity=True, debugMode=False)
-pHStatus = Status(topLevel=True, debugMode=False)
-ECStatus = Status(topLevel=True, debugMode=False)
+pHStatus = Status(isTopLevel=True, debugMode=False)
+ECStatus = Status(isTopLevel=True, debugMode=False)
 
 
 pHStatus.addStatusFieldTuple("pumpActive", "OFF")
