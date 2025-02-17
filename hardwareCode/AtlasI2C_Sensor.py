@@ -211,7 +211,7 @@ class AtlasI2C_Sensor:
         This method only starts the thread. NOTE: There doesn't have to be a condThreadTuple for the thread to start. It just won't assess any conditions
         """
         # NEW IMPLEMENTATION
-        if(self.status.getStatusFieldTupleValue("condThreadActive") == False):
+        if(self.status.getStatusFieldTupleValueUsingKey("condThreadActive") == False):
             # initialize condThread
             self.condThread = th.Thread(target=self.condThreadTarget)
             # set status variables
@@ -229,7 +229,7 @@ class AtlasI2C_Sensor:
         """
         
         # NEW METHOD BODY
-        while(self.status.getStatusFieldTupleValue("condThreadActive") == True):
+        while(self.status.getStatusFieldTupleValueUsingKey("condThreadActive") == True):
             if len(self.listCondThreadTuples) != 0:
                 if(self.CB.mostRecentValueAccessed == False and self.CB.currentSize >= 1):
                     
@@ -238,6 +238,9 @@ class AtlasI2C_Sensor:
                     tuplesToRemove = []
                     
                     currentReading = self.CB.get_latest_value(bypassAccessedFlag=False)
+                    
+                    # INJECT CODE HERE
+                    
                     for condThreadTuple in self.listCondThreadTuples:
                         
                         conditionSatisfied = False # assume false initially
@@ -281,12 +284,12 @@ class AtlasI2C_Sensor:
     
     def terminateCondThread(self):
         
-        if self.status.getStatusFieldTupleValue("condThreadActive") == True:
+        if self.status.getStatusFieldTupleValueUsingKey("condThreadActive") == True:
             self.status.setStatusFieldTupleValue("condThreadActive", False)
     
     def startContPollThread(self):
         # only start a new thread when there is no existing thread of the same kind
-        if (self.status.getStatusFieldTupleValue("contPollingThreadActive") == False):
+        if (self.status.getStatusFieldTupleValueUsingKey("contPollingThreadActive") == False):
             self.contPollThread = th.Thread(target=self.contPollThreadTarget)
             self.status.setStatusFieldTupleValue("contPollingThreadActive", True) # NOTE: It is important that this line of code comes before starting the thread, because the target function expects the flag to be true when it starts
             self.contPollThread.start()
@@ -295,7 +298,7 @@ class AtlasI2C_Sensor:
         return
             
     def contPollThreadTarget(self):
-        while (self.status.getStatusFieldTupleValue("contPollingThreadActive") == True):
+        while (self.status.getStatusFieldTupleValueUsingKey("contPollingThreadActive") == True):
             if self.contPollThreadIndependent == False:
                 # this if statement is to synchronize between this thread and the conditional thread in order to prevent the continuous polling thread from getting too far ahead
                 if(self.CB.mostRecentValueAccessed == True):
@@ -322,7 +325,7 @@ class AtlasI2C_Sensor:
         
     def terminateContPollThread(self):
         # manually set value of flags to cancel the thread
-        if self.status.getStatusFieldTupleValue("contPollingThreadActive") == True:
+        if self.status.getStatusFieldTupleValueUsingKey("contPollingThreadActive") == True:
             self.status.setStatusFieldTupleValue("contPollingThreadActive", False)
         # wait for the thread target to exit before setting variable value to None
     
