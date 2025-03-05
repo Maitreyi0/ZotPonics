@@ -7,6 +7,9 @@ import sshtunnel
 import time
 import json
 import threading
+from Status import Status
+from PeristalticPump import PeristalticPump
+from PumpWater import PumpWater
 
 # We will access the remote host via an SSH tunnel (think of it like a proxy/intermediate point we are connecting to before connecting to our actual destination)
 class MySQL_ConnectionInformation:
@@ -25,7 +28,7 @@ class MySQL_ConnectionInformation:
         self.db_name = db_name
 
 class MySQL_ServerCommunicationManager:
-    def __init__(self, mySQL_ConnectionInformation : MySQL_ConnectionInformation, menu_management_system : MenuManagementSystem, database_pH_values_circular_buffer : CircularBuffer, database_EC_values_circular_buffer : CircularBuffer, doPerformEnqueue):
+    def __init__(self, mySQL_ConnectionInformation : MySQL_ConnectionInformation, menu_management_system : MenuManagementSystem, database_pH_values_circular_buffer : CircularBuffer, database_EC_values_circular_buffer : CircularBuffer, pH_UpPumpStatus : Status, pH_DownPumpStatus : Status, baseA_PumpStatus : Status, baseB_PumpStatus : Status, doPerformEnqueue, pumpWaterStatus : Status):
         """
         The existence of this class will help contain all the threads related to communicating with the MySQL database
         
@@ -50,6 +53,13 @@ class MySQL_ServerCommunicationManager:
         
         self.database_EC_values_circular_buffer = database_EC_values_circular_buffer
         
+        self.pH_UpPumpStatus = pH_UpPumpStatus
+        self.pH_DownPumpStatus = pH_DownPumpStatus
+        self.baseA_PumpStatus = baseA_PumpStatus
+        self.baseB_PumpStatus = baseB_PumpStatus
+        
+        self.pumpWaterStatus = pumpWaterStatus
+        
         self.requestPollingThread = None
         self.requestPollingThreadActive = False
         
@@ -58,48 +68,218 @@ class MySQL_ServerCommunicationManager:
         self.insertPH_AndEC_DataThread = None
         self.insertPH_AndEC_DataThreadActive = False
         
+        self.insertPeristalticPumpStatusThread = None
+        self.insertPeristalticPumpStatusThreadActive = False
+        
+        self.insertPumpWaterStatusThread = None
+        self.insertPumpWaterStatusThreadActive = False
+        
         # This will store the connection object
         self.conn = None
         # This will store the connection cursor object
         self.cursor = None
         
         self.doPerformEnqueue = doPerformEnqueue
-            
-    # THESE DON"T WORK
-    # def establish_connection_with_server(self):
-    #     if self.conn == None:
-    #         try:
-    #             sshtunnel.SSH_TIMEOUT = 20.0
-    #             sshtunnel.TUNNEL_TIMEOUT = 20.0
+        
+        # THESE DON"T WORK
+        # def establish_connection_with_server(self):
+        #     if self.conn == None:
+        #         try:
+        #             sshtunnel.SSH_TIMEOUT = 20.0
+        #             sshtunnel.TUNNEL_TIMEOUT = 20.0
+                    
+        #             with sshtunnel.SSHTunnelForwarder(
+        #                 ('ssh.pythonanywhere.com'),
+        #                 ssh_username=self.mySQL_ConnectionInformation.ssh_user, 
+        #                 ssh_password=self.mySQL_ConnectionInformation.ssh_pass,
+        #                 remote_bind_address=(self.mySQL_ConnectionInformation.remote_bind_address, self.mySQL_ConnectionInformation.remote_port)
+        #             ) as tunnel:
+        #                 self.conn = MySQLdb.connect(
+        #                     user=self.mySQL_ConnectionInformation.db_user,
+        #                     passwd=self.mySQL_ConnectionInformation.db_pass,
+        #                     host=self.mySQL_ConnectionInformation.remote_host,
+        #                     port=tunnel.local_bind_port,
+        #                     db=self.mySQL_ConnectionInformation.db_name,
+        #                 )
+        #                 self.cursor = self.conn.cursor()
+        #         except Exception as e:
+        #             print(f"Could not establish connection with database due to: {e}")
+        #     else:
+        #         print("Already connected to database")
                 
-    #             with sshtunnel.SSHTunnelForwarder(
-    #                 ('ssh.pythonanywhere.com'),
-    #                 ssh_username=self.mySQL_ConnectionInformation.ssh_user, 
-    #                 ssh_password=self.mySQL_ConnectionInformation.ssh_pass,
-    #                 remote_bind_address=(self.mySQL_ConnectionInformation.remote_bind_address, self.mySQL_ConnectionInformation.remote_port)
-    #             ) as tunnel:
-    #                 self.conn = MySQLdb.connect(
-    #                     user=self.mySQL_ConnectionInformation.db_user,
-    #                     passwd=self.mySQL_ConnectionInformation.db_pass,
-    #                     host=self.mySQL_ConnectionInformation.remote_host,
-    #                     port=tunnel.local_bind_port,
-    #                     db=self.mySQL_ConnectionInformation.db_name,
-    #                 )
-    #                 self.cursor = self.conn.cursor()
-    #         except Exception as e:
-    #             print(f"Could not establish connection with database due to: {e}")
-    #     else:
-    #         print("Already connected to database")
+        # def terminate_connection_with_server(self):
+        #     if self.conn != None:
+        #         print("Connection terminated...")
+        #         self.cursor.close()
+        #         self.conn.close()
+        #         self.conn = None
+        #         self.cursor = None
+        #     else:
+        #         print("Not connected to remote database")
+        
+    def startInsertPumpWaterStatusThread(self):
+        if self.insertPumpWaterStatusThreadActive == False and self.insertPumpWaterStatusThread == None:
+            self.insertPumpWaterStatusThreadActive = True
+            self.insertPumpWaterStatusThread = threading.Thread(target=self.insertPumpWaterStatusThreadTarget, daemon=True)
+            self.insertPumpWaterStatusThread.start()
+        
+    def terminateInsertPumpWaterStatusThread(self):
+        if self.insertPumpWaterStatusThreadActive == True and self.insertPumpWaterStatusThread != None:
+            self.insertPumpWaterStatusThreadActive = False
+            self.insertPumpWaterStatusThread.join()
+            self.insertPumpWaterStatusThread = None
+        
+    def insertPumpWaterStatusThreadTarget(self):
+        while self.insertPumpWaterStatusThreadActive:
             
-    # def terminate_connection_with_server(self):
-    #     if self.conn != None:
-    #         print("Connection terminated...")
-    #         self.cursor.close()
-    #         self.conn.close()
-    #         self.conn = None
-    #         self.cursor = None
-    #     else:
-    #         print("Not connected to remote database")
+            nonStaleStatusDictsList = []
+            
+            if self.pumpWaterStatus != None:
+                
+                while not self.pumpWaterStatus.statusActivityQueue.empty():
+                    statusDict : dict = self.pumpWaterStatus.statusActivityQueue.get()
+                    nonStaleStatusDictsList.append(statusDict)
+                    
+            if len(nonStaleStatusDictsList) != 0:
+
+                entriesToAddAsTuples = []
+                for statusDict in nonStaleStatusDictsList:
+                    statusDict : dict # define this for type hints
+                    alias = statusDict[PumpWater.FieldKeys.ALIAS]
+                    pwm_freq = statusDict[PumpWater.FieldKeys.PWM]
+                    on_off_state = statusDict[PumpWater.FieldKeys.ON_OFF_STATE]
+                    mode = statusDict[PumpWater.FieldKeys.MODE]
+                    auto_cycle_thread_active = statusDict[PumpWater.FieldKeys.AUTO_CYCLE_THREAD_ACTIVE]
+                    
+                    timestamp = statusDict["timestamp"]
+                    
+                    entryTuple = (alias, pwm_freq, on_off_state, mode, auto_cycle_thread_active, timestamp)
+                    entriesToAddAsTuples.append(entryTuple)
+                    
+                try:
+                    sshtunnel.SSH_TIMEOUT = 20.0
+                    sshtunnel.TUNNEL_TIMEOUT = 20.0
+                    
+                    with sshtunnel.SSHTunnelForwarder(
+                        ('ssh.pythonanywhere.com'),
+                        ssh_username=self.mySQL_ConnectionInformation.ssh_user, 
+                        ssh_password=self.mySQL_ConnectionInformation.ssh_pass,
+                        remote_bind_address=(self.mySQL_ConnectionInformation.remote_bind_address, self.mySQL_ConnectionInformation.remote_port)
+                    ) as tunnel:
+                        conn = MySQLdb.connect(
+                            user=self.mySQL_ConnectionInformation.db_user,
+                            passwd=self.mySQL_ConnectionInformation.db_pass,
+                            host=self.mySQL_ConnectionInformation.remote_host,
+                            port=tunnel.local_bind_port,
+                            db=self.mySQL_ConnectionInformation.db_name,
+                        )
+                        
+                        cursor = conn.cursor()
+                        
+                        for entryToAddAsTuple in entriesToAddAsTuples:
+                        
+                            query = "INSERT INTO waterPumpActivity (alias, pwm_freq, on_off_state, mode, auto_cycle_thread_active, timestamp) VALUES (%s, %s, %s, %s, %s, %s)"
+                            cursor.execute(query, (entryToAddAsTuple[0], entryToAddAsTuple[1], entryToAddAsTuple[2], entryToAddAsTuple[3], entryToAddAsTuple[4], entryToAddAsTuple[5]))
+                        
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                        print("Successfully Inserted Into waterPumpActivity Table")
+                except Exception as e:
+                    print(f"Error encountered: {e}")
+                    
+            time.sleep(1) # timeout
+                
+        
+    def insertPeristalticPumpStatusThreadTarget(self):
+        while self.insertPeristalticPumpStatusThreadActive:
+            
+            nonStaleStatusDictsList = []
+            
+            # only insert new data if status has been updated and not stale
+            if self.pH_UpPumpStatus != None:
+                
+                while not self.pH_UpPumpStatus.statusActivityQueue.empty():
+                    statusDict = self.pH_UpPumpStatus.statusActivityQueue.get()
+                    nonStaleStatusDictsList.append(statusDict)
+            
+            if self.pH_DownPumpStatus != None:
+                
+                while not self.pH_DownPumpStatus.statusActivityQueue.empty():
+                    statusDict = self.pH_DownPumpStatus.statusActivityQueue.get()
+                    nonStaleStatusDictsList.append(statusDict)
+                    
+            if self.baseA_PumpStatus != None:
+                
+                while not self.baseA_PumpStatus.statusActivityQueue.empty():
+                    statusDict = self.baseA_PumpStatus.statusActivityQueue.get()
+                    nonStaleStatusDictsList.append(statusDict)
+                   
+            if self.baseB_PumpStatus != None: 
+                
+                while not self.baseB_PumpStatus.statusActivityQueue.empty():
+                    statusDict = self.baseB_PumpStatus.statusActivityQueue.get()
+                    nonStaleStatusDictsList.append(statusDict)
+            
+            if len(nonStaleStatusDictsList) != 0:
+
+                entriesToAddAsTuples = []
+                for statusDict in nonStaleStatusDictsList:
+                    statusDict : dict # define this for type hints
+                    alias = statusDict[PeristalticPump.FieldKeys.ALIAS]
+                    pin = statusDict[PeristalticPump.FieldKeys.PIN]
+                    pumpActive = statusDict[PeristalticPump.FieldKeys.PUMP_ACTIVE]
+                    timestamp = statusDict["timestamp"]
+                    
+                    entryTuple = (alias, pin, pumpActive, timestamp)
+                    entriesToAddAsTuples.append(entryTuple)
+                    
+                try:
+                    sshtunnel.SSH_TIMEOUT = 20.0
+                    sshtunnel.TUNNEL_TIMEOUT = 20.0
+                    
+                    with sshtunnel.SSHTunnelForwarder(
+                        ('ssh.pythonanywhere.com'),
+                        ssh_username=self.mySQL_ConnectionInformation.ssh_user, 
+                        ssh_password=self.mySQL_ConnectionInformation.ssh_pass,
+                        remote_bind_address=(self.mySQL_ConnectionInformation.remote_bind_address, self.mySQL_ConnectionInformation.remote_port)
+                    ) as tunnel:
+                        conn = MySQLdb.connect(
+                            user=self.mySQL_ConnectionInformation.db_user,
+                            passwd=self.mySQL_ConnectionInformation.db_pass,
+                            host=self.mySQL_ConnectionInformation.remote_host,
+                            port=tunnel.local_bind_port,
+                            db=self.mySQL_ConnectionInformation.db_name,
+                        )
+                        
+                        cursor = conn.cursor()
+                        
+                        for entryToAddAsTuple in entriesToAddAsTuples:
+                        
+                            query = "INSERT INTO pPumpActivity (alias, pin, pumpActive, timestamp) VALUES (%s, %s, %s, %s)"
+                            cursor.execute(query, (entryToAddAsTuple[0], entryToAddAsTuple[1], entryToAddAsTuple[2], entryToAddAsTuple[3]))
+                        
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                        print("Successfully Inserted Into pPumpActivity Table")
+                except Exception as e:
+                    print(f"Error encountered: {e}")
+                    
+            time.sleep(1) # timeout
+        
+    def startInsertPeristalticPumpStatusThread(self):
+        if self.insertPeristalticPumpStatusThreadActive == False and self.insertPeristalticPumpStatusThread == None:
+            self.insertPeristalticPumpStatusThreadActive = True
+            self.insertPeristalticPumpStatusThread = threading.Thread(target=self.insertPeristalticPumpStatusThreadTarget, daemon=True)
+            self.insertPeristalticPumpStatusThread.start()
+        
+        
+    def terminateInsertPeristalticPumpStatusThread(self):
+        if self.insertPeristalticPumpStatusThreadActive == True and self.insertPeristalticPumpStatusThread != None:
+            self.insertPeristalticPumpStatusThreadActive = False
+            self.insertPeristalticPumpStatusThread.join()
+            self.insertPeristalticPumpStatusThread = None
         
     def requestPollingThreadTarget(self):
         while self.requestPollingThreadActive:
@@ -289,7 +469,7 @@ class MySQL_ServerCommunicationManager:
         
 if __name__ == "__main__":
     import MySQL_CommunicationManagerTestCases
-    MySQL_CommunicationManagerTestCases.test_pop_and_enqueue()
+    MySQL_CommunicationManagerTestCases.test_inserting_into_waterPump_activity_table()
     
     exit()
     
