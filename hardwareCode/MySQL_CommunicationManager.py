@@ -10,6 +10,7 @@ import threading
 from Status import Status
 from PeristalticPump import PeristalticPump
 from PumpWater import PumpWater
+from queue import Queue
 
 # We will access the remote host via an SSH tunnel (think of it like a proxy/intermediate point we are connecting to before connecting to our actual destination)
 class MySQL_ConnectionInformation:
@@ -28,7 +29,7 @@ class MySQL_ConnectionInformation:
         self.db_name = db_name
 
 class MySQL_ServerCommunicationManager:
-    def __init__(self, mySQL_ConnectionInformation : MySQL_ConnectionInformation, menu_management_system : MenuManagementSystem, database_pH_values_circular_buffer : CircularBuffer, database_EC_values_circular_buffer : CircularBuffer, pH_UpPumpStatus : Status, pH_DownPumpStatus : Status, baseA_PumpStatus : Status, baseB_PumpStatus : Status, doPerformEnqueue, pumpWaterStatus : Status):
+    def __init__(self, mySQL_ConnectionInformation : MySQL_ConnectionInformation, menu_management_system : MenuManagementSystem, database_pH_values_queue : Queue, database_EC_values_queue : Queue, pH_UpPumpStatus : Status, pH_DownPumpStatus : Status, baseA_PumpStatus : Status, baseB_PumpStatus : Status, doPerformEnqueue, pumpWaterStatus : Status):
         """
         The existence of this class will help contain all the threads related to communicating with the MySQL database
         
@@ -49,9 +50,9 @@ class MySQL_ServerCommunicationManager:
         
         self.menu_management_system = menu_management_system
         
-        self.database_pH_values_circular_buffer = database_pH_values_circular_buffer
+        self.database_pH_values_queue = database_pH_values_queue
         
-        self.database_EC_values_circular_buffer = database_EC_values_circular_buffer
+        self.database_EC_values_queue = database_EC_values_queue
         
         self.pH_UpPumpStatus = pH_UpPumpStatus
         self.pH_DownPumpStatus = pH_DownPumpStatus
@@ -80,42 +81,110 @@ class MySQL_ServerCommunicationManager:
         self.cursor = None
         
         self.doPerformEnqueue = doPerformEnqueue
+    
+    def add_menu_management_system_options_for_pump_water(self, pumpWater : PumpWater):
         
-        # THESE DON"T WORK
-        # def establish_connection_with_server(self):
-        #     if self.conn == None:
-        #         try:
-        #             sshtunnel.SSH_TIMEOUT = 20.0
-        #             sshtunnel.TUNNEL_TIMEOUT = 20.0
-                    
-        #             with sshtunnel.SSHTunnelForwarder(
-        #                 ('ssh.pythonanywhere.com'),
-        #                 ssh_username=self.mySQL_ConnectionInformation.ssh_user, 
-        #                 ssh_password=self.mySQL_ConnectionInformation.ssh_pass,
-        #                 remote_bind_address=(self.mySQL_ConnectionInformation.remote_bind_address, self.mySQL_ConnectionInformation.remote_port)
-        #             ) as tunnel:
-        #                 self.conn = MySQLdb.connect(
-        #                     user=self.mySQL_ConnectionInformation.db_user,
-        #                     passwd=self.mySQL_ConnectionInformation.db_pass,
-        #                     host=self.mySQL_ConnectionInformation.remote_host,
-        #                     port=tunnel.local_bind_port,
-        #                     db=self.mySQL_ConnectionInformation.db_name,
-        #                 )
-        #                 self.cursor = self.conn.cursor()
-        #         except Exception as e:
-        #             print(f"Could not establish connection with database due to: {e}")
-        #     else:
-        #         print("Already connected to database")
+        # Pump Water Command Options
+        if self.menu_management_system != None:
+            self.menu_management_system.add_option("[PumpWater]-manual_turn_on_pump", pumpWater.manual_turn_on_pump)
+            self.menu_management_system.add_option("[PumpWater]-manual_turn_off_pump", pumpWater.manual_turn_off_pump)
+            self.menu_management_system.add_option("[PumpWater]-set_pwm_duty_cycle", pumpWater.set_pwm_duty_cycle)
+            self.menu_management_system.add_option("[PumpWater]-switch_to_automatic", pumpWater.switch_to_automatic)
+            self.menu_management_system.add_option("[PumpWater]-switch_to_manual", pumpWater.switch_to_manual)
+        else:
+            print("No menu management system object present")
+            
+        
+      
+    def startInsertPH_AndEC_DataThread(self):
+        if self.insertPH_AndEC_DataThreadActive == False and self.insertPH_AndEC_DataThread == None:
+            self.insertPH_AndEC_DataThreadActive = True
+            self.insertPH_AndEC_DataThread = threading.Thread(target=self.insertPH_AndEC_DataThreadTarget, daemon=True)
+            self.insertPH_AndEC_DataThread.start()
+        else:
+            print("Could not start insertPH_AndEC_DataThread")
+    
+    def terminateInsertPH_AndEC_DataThread(self):
+        if self.insertPH_AndEC_DataThreadActive == True and self.insertPH_AndEC_DataThread != None:
+            self.insertPH_AndEC_DataThreadActive = False
+            self.insertPH_AndEC_DataThread.join()
+            self.insertPH_AndEC_DataThread = None
+        else:
+            print("Could not terminate insertPH_AndEC_DataThread")
+        
+    def insertPH_AndEC_DataThreadTarget(self):
+        while self.insertPH_AndEC_DataThreadActive == True:
+        
+            print("Running insertPH_AndEC_DataThread")
+        
+            if self.database_pH_values_queue != None or self.database_EC_values_queue != None:
                 
-        # def terminate_connection_with_server(self):
-        #     if self.conn != None:
-        #         print("Connection terminated...")
-        #         self.cursor.close()
-        #         self.conn.close()
-        #         self.conn = None
-        #         self.cursor = None
-        #     else:
-        #         print("Not connected to remote database")
+                try:
+                    sshtunnel.SSH_TIMEOUT = 20.0
+                    sshtunnel.TUNNEL_TIMEOUT = 20.0
+                    
+                    with sshtunnel.SSHTunnelForwarder(
+                        ('ssh.pythonanywhere.com'),
+                        ssh_username=self.mySQL_ConnectionInformation.ssh_user, 
+                        ssh_password=self.mySQL_ConnectionInformation.ssh_pass,
+                        remote_bind_address=(self.mySQL_ConnectionInformation.remote_bind_address, self.mySQL_ConnectionInformation.remote_port)
+                    ) as tunnel:
+                        conn = MySQLdb.connect(
+                            user=self.mySQL_ConnectionInformation.db_user,
+                            passwd=self.mySQL_ConnectionInformation.db_pass,
+                            host=self.mySQL_ConnectionInformation.remote_host,
+                            port=tunnel.local_bind_port,
+                            db=self.mySQL_ConnectionInformation.db_name,
+                        )
+                        
+                        cursor = conn.cursor()
+                        
+                        if self.database_pH_values_queue != None:
+                            while not self.database_pH_values_queue.empty():
+                                val_time_tuple = self.database_pH_values_queue.get()
+                                query = "INSERT INTO pH_data (pH, timestamp) VALUES (%s, %s)"
+                                cursor.execute(query, (val_time_tuple[0], val_time_tuple[1]))
+                        
+                        if self.database_EC_values_queue != None:
+                            while not self.database_EC_values_queue.empty():
+                                val_time_tuple = self.database_EC_values_queue.get()
+                                query = "INSERT INTO ec_data (ec, timestamp) VALUES (%s, %s)"
+                                cursor.execute(query, (val_time_tuple[0], val_time_tuple[1]))
+                                
+                        # checking if capacity is reached (currently is 25)
+                        # Count rows in pH_data
+                        cursor.execute("SELECT COUNT(*) FROM pH_data")
+                        row_count = cursor.fetchone()[0]
+
+                        if row_count > 25:
+                            cursor.execute("""
+                                DELETE p FROM pH_data p
+                                JOIN (
+                                    SELECT id FROM pH_data ORDER BY timestamp ASC LIMIT %s
+                                ) subquery ON p.id = subquery.id;
+                            """, (row_count - 25,))  # Pass the number of extra rows to delete
+
+                        # Count rows in ec_data
+                        cursor.execute("SELECT COUNT(*) FROM ec_data")
+                        row_count = cursor.fetchone()[0]
+
+                        if row_count > 25:
+                            cursor.execute("""
+                                DELETE p FROM ec_data p
+                                JOIN (
+                                    SELECT id FROM ec_data ORDER BY timestamp ASC LIMIT %s
+                                ) subquery ON p.id = subquery.id;
+                            """, (row_count - 25,))  # Pass the number of extra rows to delete
+                        
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                        print("Successfully Inserted Into EC and PH Data Tables")
+                except Exception as e:
+                    print(f"Error encountered: {e}")
+                    
+            time.sleep(1) # timeout
+        print("insertPH_AndEC_DataThread has ended")
         
     def startInsertPumpWaterStatusThread(self):
         if self.insertPumpWaterStatusThreadActive == False and self.insertPumpWaterStatusThread == None:
@@ -326,20 +395,11 @@ class MySQL_ServerCommunicationManager:
         except Exception as e:
             print(f"Error encountered: {e}")
         
-    def insertPH_AndEC_DataThreadTarget(self):
-        while self.insertPH_AndEC_DataThreadActive:
-            
-            time.sleep(1) # timeout
-        
     def start_requestPollingThread(self):
         if self.requestPollingThreadActive == False and self.requestPollingThread == None:
             self.requestPollingThreadActive = True
             self.requestPollingThread = threading.Thread(target=self.requestPollingThreadTarget, daemon=True)
             self.requestPollingThread.start()
-        
-        
-    def start_insertPH_AndEC_DataThread(self):
-        NotImplemented
         
     def terminate_requestPollingThread(self):
         if self.requestPollingThreadActive == True and self.requestPollingThread != None:
@@ -349,7 +409,7 @@ class MySQL_ServerCommunicationManager:
             self.requestPollingThread = None
             print("Request Polling Thread has been stopped")
         
-    def terminate_insertPH_AndEC_DataThread(self):
+    def terminateInsertPH_AndEC_DataThread(self):
         NotImplemented
         
     def _retrieve_most_recent_command_arg_pair(self) -> tuple:
@@ -469,7 +529,7 @@ class MySQL_ServerCommunicationManager:
         
 if __name__ == "__main__":
     import MySQL_CommunicationManagerTestCases
-    MySQL_CommunicationManagerTestCases.test_inserting_into_waterPump_activity_table()
+    MySQL_CommunicationManagerTestCases.test_inserting_into_ec_and_pH_data_tables()
     
     exit()
     
