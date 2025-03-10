@@ -114,14 +114,8 @@ class MySQL_ServerCommunicationManager:
             self.captureAndInsertImageThread.join()
             self.captureAndInsertImageThread = None
         
-    def uploadImageToDatabase(self, image_path):
-        import convertImage
-        # it uploads the image to Database, any more paramters?
-        try:
-            convertImage.store_image(image_path)  
-            print(f"Image '{image_path}' uploaded successfully.")
-        except Exception as e:
-            print(f"Error uploading image: {e}")
+    def uploadImageToDatabase(self):
+        NotImplemented
       
     def startInsertPH_AndEC_DataThread(self):
         if self.insertPH_AndEC_DataThreadActive == False and self.insertPH_AndEC_DataThread == None:
@@ -623,7 +617,7 @@ if __name__ == "__main__":
     import GPIO_Utility
     
     try:
-        MySQL_CommunicationManagerTestCases.test_inserting_into_overallSystemActivity()
+        MySQL_CommunicationManagerTestCases.test_inserting_into_ec_and_pH_data_tables()
     except KeyboardInterrupt as e:
         GPIO_Utility.gpioCleanup()
     
