@@ -1,6 +1,7 @@
 import mysql.connector
 import MySQLdb
 import sshtunnel
+import json
 
 DB_HOST = "superlords1.mysql.pythonanywhere-services.com"
 DB_USER = "superlords1"
@@ -145,7 +146,7 @@ def insert_pump(pump):
     except MySQLdb.Error as err:
         print(f"Error: {err}")
 
-def insert_requests_table(command, arguments):
+def insert_into_requests_table(command, arguments : list):
     try:
         with sshtunnel.SSHTunnelForwarder(
             ('ssh.pythonanywhere.com'),
@@ -161,12 +162,13 @@ def insert_requests_table(command, arguments):
             )
             cursor = conn.cursor()
             if isinstance(arguments, list):
-                arguments_str = ','.join(map(str, arguments))
+                json_encoded_string = json.dumps(arguments)
             else:
-                arguments_str = str(arguments)
+                print("arguments argument not a dict, returning...")
+                return
             # Corrected query to match your table columns
-            query = "INSERT INTO requests (command, func, arguments) VALUES (%s, %s, %s)"
-            cursor.execute(query, (command, None, arguments_str))
+            query = "INSERT INTO requests (command, arguments) VALUES (%s, %s)"
+            cursor.execute(query, (command, json_encoded_string))
             conn.commit()
 
             print("Data inserted successfully!")
@@ -403,7 +405,7 @@ def delete_most_recent_row(table_name):
     except mysql.connector.Error as err:
         print(f"Error: {err}")
 
-def retrieve_most_recent_request() -> tuple:
+def retrieve_most_recent_command_arg_pair() -> tuple:
     """
     The returned tuple will have 3 items, i.e., (primary key, command, arguments)
     """
@@ -437,25 +439,25 @@ def pop_most_recent_request() -> tuple:
     """
     This will retrieve the most recent request and pop it from the database
     
-    IMPORTANT: The returned tuple will have every element as a string (so would need wrapper methods for the base hardware component class methods)
-    
-    SIDE NOTE: primary key = id
+    Will be in the following format:
+    ("command", [])
     """
     
-    request_entry = retrieve_most_recent_request()
+    request_entry = retrieve_most_recent_command_arg_pair()
     
     primary_key = request_entry[0]
     command = request_entry[1]
-    args_list = request_entry[2]
+    args_list_json = request_entry[2]
+    args_list = json.loads(args_list_json) # load json string as a list
     
-    delete_request_by_id(primary_key)
+    _delete_request_by_id(primary_key)
         
-    return [command, args_list]
+    return (command, args_list)
     
     
     
 
-def delete_request_by_id(id):
+def _delete_request_by_id(id):
     sshtunnel.SSH_TIMEOUT = 20.0
     sshtunnel.TUNNEL_TIMEOUT = 20.0
     with sshtunnel.SSHTunnelForwarder(
@@ -535,9 +537,7 @@ def delete_all_entries() -> None:
         
 #TESTING
 if __name__ == "__main__":
-    '''
     import MYSQL_TestCases
-    
     MYSQL_TestCases.test_insert_and_delete()
-    '''
-    insert_pump('on')
+    
+    # insert_pump('on')
