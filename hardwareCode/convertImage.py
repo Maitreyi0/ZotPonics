@@ -9,7 +9,7 @@ DB_USER = "superlords1"
 DB_PASSWORD = "zotponics123"
 DB_NAME = "superlords1$default"
 
-def store_image(image_path):
+def store_image_and_delete_excess(image_path):
     """ Converts an image to JPEG and stores it in the database. """
     try:
         with open(image_path, "rb") as img_file:
@@ -33,7 +33,26 @@ def store_image(image_path):
             cursor.execute(query, (img_data,))
             conn.commit()
             print("Image stored successfully!")
+            
+            # Count rows in images table
+            cursor.execute("SELECT COUNT(*) FROM images")
+            row_count = cursor.fetchone()[0]  # Fetch the number of rows
 
+            # Check if row count exceeds 10
+            if row_count > 10:
+                excess_rows = row_count - 10  # Calculate how many extra rows need to be deleted
+
+                # Delete the oldest (excess_rows) rows based on the timestamp
+                cursor.execute("""
+                    DELETE p FROM images p
+                    JOIN (
+                        SELECT id FROM images ORDER BY timestamp ASC LIMIT %s
+                    ) subquery ON p.id = subquery.id;
+                """, (excess_rows,))  # Pass the number of extra rows to delete
+
+                print(f"Deleted {excess_rows} oldest rows from 'images' to maintain limit of 10.")
+
+            conn.commit()
             cursor.close()
             conn.close()
     except Exception as e:
