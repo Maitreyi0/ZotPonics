@@ -617,7 +617,7 @@ if __name__ == "__main__":
     import GPIO_Utility
     
     try:
-        MySQL_CommunicationManagerTestCases.test_inserting_into_overallSystemActivity()
+        MySQL_CommunicationManagerTestCases.test_inserting_into_ec_and_pH_data_tables()
     except KeyboardInterrupt as e:
         GPIO_Utility.gpioCleanup()
     
