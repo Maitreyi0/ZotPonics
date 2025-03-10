@@ -11,6 +11,7 @@ from Status import Status
 from PeristalticPump import PeristalticPump
 from PumpWater import PumpWater
 from queue import Queue
+from PiCamera import PiCamera
 
 # We will access the remote host via an SSH tunnel (think of it like a proxy/intermediate point we are connecting to before connecting to our actual destination)
 class MySQL_ConnectionInformation:
@@ -29,7 +30,7 @@ class MySQL_ConnectionInformation:
         self.db_name = db_name
 
 class MySQL_ServerCommunicationManager:
-    def __init__(self, mySQL_ConnectionInformation : MySQL_ConnectionInformation, menu_management_system : MenuManagementSystem, database_pH_values_queue : Queue, database_EC_values_queue : Queue, pH_UpPumpStatus : Status, pH_DownPumpStatus : Status, baseA_PumpStatus : Status, baseB_PumpStatus : Status, doPerformEnqueue, pumpWaterStatus : Status):
+    def __init__(self, mySQL_ConnectionInformation : MySQL_ConnectionInformation, menu_management_system : MenuManagementSystem, database_pH_values_queue : Queue, database_EC_values_queue : Queue, pH_UpPumpStatus : Status, pH_DownPumpStatus : Status, baseA_PumpStatus : Status, baseB_PumpStatus : Status, doPerformEnqueue, pumpWaterStatus : Status, overallSystemStatus : Status, piCamera : PiCamera):
         """
         The existence of this class will help contain all the threads related to communicating with the MySQL database
         
@@ -58,8 +59,10 @@ class MySQL_ServerCommunicationManager:
         self.pH_DownPumpStatus = pH_DownPumpStatus
         self.baseA_PumpStatus = baseA_PumpStatus
         self.baseB_PumpStatus = baseB_PumpStatus
-        
         self.pumpWaterStatus = pumpWaterStatus
+        self.overallSystemStatus = overallSystemStatus # We assume that overallSystem object is created first then we create the communication manager with overallSystemStatus 
+        
+        self.piCamera = piCamera # needed for the capture and insert image thread
         
         self.requestPollingThread = None
         self.requestPollingThreadActive = False
@@ -72,8 +75,11 @@ class MySQL_ServerCommunicationManager:
         self.insertPeristalticPumpStatusThread = None
         self.insertPeristalticPumpStatusThreadActive = False
         
-        self.insertPumpWaterStatusThread = None
-        self.insertPumpWaterStatusThreadActive = False
+        self.captureAndInsertImageThread = None
+        self.captureAndInsertImageThreadActive = False
+        
+        self.insertStatusThread = None
+        self.insertStatusThreadActive = False
         
         # This will store the connection object
         self.conn = None
@@ -81,20 +87,35 @@ class MySQL_ServerCommunicationManager:
         self.cursor = None
         
         self.doPerformEnqueue = doPerformEnqueue
-    
-    def add_menu_management_system_options_for_pump_water(self, pumpWater : PumpWater):
+      
+    def startCaptureAndInsertImageThread(self):
+        if self.captureAndInsertImageThreadActive == False and self.captureAndInsertImageThread == None:
+            self.captureAndInsertImageThreadActive = True
+            self.captureAndInsertImageThread = threading.Thread(target=self.captureAndInsertImageThreadTarget, daemon=True)
+            self.captureAndInsertImageThread.start()
         
-        # Pump Water Command Options
-        if self.menu_management_system != None:
-            self.menu_management_system.add_option("[PumpWater]-manual_turn_on_pump", pumpWater.manual_turn_on_pump)
-            self.menu_management_system.add_option("[PumpWater]-manual_turn_off_pump", pumpWater.manual_turn_off_pump)
-            self.menu_management_system.add_option("[PumpWater]-set_pwm_duty_cycle", pumpWater.set_pwm_duty_cycle)
-            self.menu_management_system.add_option("[PumpWater]-switch_to_automatic", pumpWater.switch_to_automatic)
-            self.menu_management_system.add_option("[PumpWater]-switch_to_manual", pumpWater.switch_to_manual)
-        else:
-            print("No menu management system object present")
+    def captureAndInsertImageThreadTarget(self):
+        """
+        The capturing portion will call the camera's method
+        """
+        while self.captureAndInsertImageThreadActive == True:
+            # Capture the image first
+            if self.piCamera != None:
+                self.piCamera.capture_image("imageCapture.jpg") # stored in captured_images dir by default
+                
+                # NEED TO IMPLEMENT STILL
+                self.uploadImageToDatabase()
             
+            time.sleep(1) # Timeout
+            
+    def terminateCaptureAndInsertImageThreadTarget(self):
+        if self.captureAndInsertImageThreadActive == True and self.captureAndInsertImageThread != None:
+            self.captureAndInsertImageThreadActive = False
+            self.captureAndInsertImageThread.join()
+            self.captureAndInsertImageThread = None
         
+    def uploadImageToDatabase(self):
+        NotImplemented
       
     def startInsertPH_AndEC_DataThread(self):
         if self.insertPH_AndEC_DataThreadActive == False and self.insertPH_AndEC_DataThread == None:
@@ -186,44 +207,90 @@ class MySQL_ServerCommunicationManager:
             time.sleep(1) # timeout
         print("insertPH_AndEC_DataThread has ended")
         
-    def startInsertPumpWaterStatusThread(self):
-        if self.insertPumpWaterStatusThreadActive == False and self.insertPumpWaterStatusThread == None:
-            self.insertPumpWaterStatusThreadActive = True
-            self.insertPumpWaterStatusThread = threading.Thread(target=self.insertPumpWaterStatusThreadTarget, daemon=True)
-            self.insertPumpWaterStatusThread.start()
+    def startInsertStatusThread(self):
+        if self.insertStatusThreadActive == False and self.insertStatusThread == None:
+            self.insertStatusThreadActive = True
+            self.insertStatusThread = threading.Thread(target=self.insertStatusThreadTarget, daemon=True)
+            self.insertStatusThread.start()
         
     def terminateInsertPumpWaterStatusThread(self):
-        if self.insertPumpWaterStatusThreadActive == True and self.insertPumpWaterStatusThread != None:
-            self.insertPumpWaterStatusThreadActive = False
-            self.insertPumpWaterStatusThread.join()
-            self.insertPumpWaterStatusThread = None
+        if self.insertStatusThreadActive == True and self.insertStatusThread != None:
+            self.insertStatusThreadActive = False
+            self.insertStatusThread.join()
+            self.insertStatusThread = None
         
-    def insertPumpWaterStatusThreadTarget(self):
-        while self.insertPumpWaterStatusThreadActive:
+    def insertStatusThreadTarget(self):
+        """
+        This thread will be for all status objects that mySQL_CommunicationManager is currently attached to EXCEPT for the peristaltic pumps, that is a separate thread
+        """
+        from OverallSystemV2 import OverallSystem
+        
+        while self.insertStatusThreadActive:
             
-            nonStaleStatusDictsList = []
+            print("Iteration of insertStatusThreadTarget running...")
             
+            # Initialize the relevant lists
+            pumpWaterStatusDictsList = []
+            pumpWaterStatusTuplesToAddToDatabase = []
+            overallSystemStatusDictsList = []
+            overallSystemStatusTuplesToAddToDatabase = []
+            
+            # doing for pump water first
             if self.pumpWaterStatus != None:
                 
                 while not self.pumpWaterStatus.statusActivityQueue.empty():
                     statusDict : dict = self.pumpWaterStatus.statusActivityQueue.get()
-                    nonStaleStatusDictsList.append(statusDict)
+                    pumpWaterStatusDictsList.append(statusDict)
                     
-            if len(nonStaleStatusDictsList) != 0:
+                if len(pumpWaterStatusDictsList) != 0:
+                    
+                    for statusDict in pumpWaterStatusDictsList:
+                        statusDict : dict # define this for type hints
+                        alias = statusDict[PumpWater.FieldKeys.ALIAS]
+                        pwm_freq = statusDict[PumpWater.FieldKeys.PWM]
+                        on_off_state = statusDict[PumpWater.FieldKeys.ON_OFF_STATE]
+                        mode = statusDict[PumpWater.FieldKeys.MODE]
+                        auto_cycle_thread_active = statusDict[PumpWater.FieldKeys.AUTO_CYCLE_THREAD_ACTIVE]
+                        
+                        timestamp = statusDict["timestamp"]
+                        
+                        pumpWaterStatusTuple = (alias, pwm_freq, on_off_state, mode, auto_cycle_thread_active, timestamp)
+                        pumpWaterStatusTuplesToAddToDatabase.append(pumpWaterStatusTuple)
+               
+            # doing for overall system
+            if self.overallSystemStatus != None:
 
-                entriesToAddAsTuples = []
-                for statusDict in nonStaleStatusDictsList:
-                    statusDict : dict # define this for type hints
-                    alias = statusDict[PumpWater.FieldKeys.ALIAS]
-                    pwm_freq = statusDict[PumpWater.FieldKeys.PWM]
-                    on_off_state = statusDict[PumpWater.FieldKeys.ON_OFF_STATE]
-                    mode = statusDict[PumpWater.FieldKeys.MODE]
-                    auto_cycle_thread_active = statusDict[PumpWater.FieldKeys.AUTO_CYCLE_THREAD_ACTIVE]
+                print("overallSystem is not None")
+    
+                
+                while not self.overallSystemStatus.statusActivityQueue.empty():
+                    print("Emptying queue...")
+                    statusDict : dict = self.overallSystemStatus.statusActivityQueue.get()
+                    overallSystemStatusDictsList.append(statusDict)
                     
-                    timestamp = statusDict["timestamp"]
+                if len(overallSystemStatusDictsList) != 0:
                     
-                    entryTuple = (alias, pwm_freq, on_off_state, mode, auto_cycle_thread_active, timestamp)
-                    entriesToAddAsTuples.append(entryTuple)
+                    for statusDict in overallSystemStatusDictsList:
+                        statusDict : dict
+                        alias = statusDict[OverallSystem.FieldKeys.ALIAS]
+                        operation_mode = statusDict[OverallSystem.FieldKeys.OPERATION_MODE]
+                        ph_up_pump_connected = statusDict[OverallSystem.FieldKeys.PH_UP_PUMP_CONNECTED]
+                        ph_down_pump_connected = statusDict[OverallSystem.FieldKeys.PH_DOWN_PUMP_CONNECTED]
+                        base_a_pump_connected = statusDict[OverallSystem.FieldKeys.BASE_A_PUMP_CONNECTED]
+                        base_b_pump_connected = statusDict[OverallSystem.FieldKeys.BASE_B_PUMP_CONNECTED]
+                        ph_sensor_connected = statusDict[OverallSystem.FieldKeys.PH_SENSOR_CONNECTED]
+                        ec_sensor_connected = statusDict[OverallSystem.FieldKeys.EC_SENSOR_CONNECTED]
+                        pump_water_connected = statusDict[OverallSystem.FieldKeys.PUMP_WATER_CONNECTED]
+                        my_sql_communication_manager_connected = statusDict[OverallSystem.FieldKeys.MY_SQL_COMMUNICATION_MANAGER_CONNECTED]
+                        menu_management_system_connected = statusDict[OverallSystem.FieldKeys.MENU_MANAGEMENT_SYSTEM_CONNECTED]
+                        
+                        timestamp = statusDict["timestamp"]
+                        
+                        overallSystemStatusTuple = (alias, operation_mode, ph_up_pump_connected, ph_down_pump_connected, base_a_pump_connected, base_b_pump_connected, ph_sensor_connected, ec_sensor_connected, pump_water_connected, my_sql_communication_manager_connected, menu_management_system_connected, timestamp)
+                        overallSystemStatusTuplesToAddToDatabase.append(overallSystemStatusTuple)
+                        print("Appended overallSystemStatusTuple...")
+                        
+            if len(pumpWaterStatusTuplesToAddToDatabase) != 0 or len(overallSystemStatusTuplesToAddToDatabase) != 0:
                     
                 try:
                     sshtunnel.SSH_TIMEOUT = 20.0
@@ -245,15 +312,21 @@ class MySQL_ServerCommunicationManager:
                         
                         cursor = conn.cursor()
                         
-                        for entryToAddAsTuple in entriesToAddAsTuples:
+                        for pumpWaterStatusTupleToAdd in pumpWaterStatusTuplesToAddToDatabase:
                         
                             query = "INSERT INTO waterPumpActivity (alias, pwm_freq, on_off_state, mode, auto_cycle_thread_active, timestamp) VALUES (%s, %s, %s, %s, %s, %s)"
-                            cursor.execute(query, (entryToAddAsTuple[0], entryToAddAsTuple[1], entryToAddAsTuple[2], entryToAddAsTuple[3], entryToAddAsTuple[4], entryToAddAsTuple[5]))
+                            cursor.execute(query, (pumpWaterStatusTupleToAdd[0], pumpWaterStatusTupleToAdd[1], pumpWaterStatusTupleToAdd[2], pumpWaterStatusTupleToAdd[3], pumpWaterStatusTupleToAdd[4], pumpWaterStatusTupleToAdd[5]))
+                        
+                        for overallSystemStatusTupleToAdd in overallSystemStatusTuplesToAddToDatabase:
+                            
+                            query = "INSERT INTO overallSystemActivity (alias, operation_mode, ph_up_pump_connected, ph_down_pump_connected, base_a_pump_connected, base_b_pump_connected, ph_sensor_connected, ec_sensor_connected, pump_water_connected, my_sql_communication_manager_connected, menu_management_system_connected, timestamp) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                            cursor.execute(query, (overallSystemStatusTupleToAdd[0], overallSystemStatusTupleToAdd[1], overallSystemStatusTupleToAdd[2], overallSystemStatusTupleToAdd[3], overallSystemStatusTupleToAdd[4], overallSystemStatusTupleToAdd[5], overallSystemStatusTupleToAdd[6], overallSystemStatusTupleToAdd[7], overallSystemStatusTupleToAdd[8], overallSystemStatusTupleToAdd[9], overallSystemStatusTupleToAdd[10], overallSystemStatusTupleToAdd[11]))
+                            
                         
                         conn.commit()
                         cursor.close()
                         conn.close()
-                        print("Successfully Inserted Into waterPumpActivity Table")
+                        print("Successfully Inserted Status into Corresponding Tables")
                 except Exception as e:
                     print(f"Error encountered: {e}")
                     
@@ -351,6 +424,9 @@ class MySQL_ServerCommunicationManager:
             self.insertPeristalticPumpStatusThread = None
         
     def requestPollingThreadTarget(self):
+        from OverallSystemV2 import OverallSystem
+        
+        
         while self.requestPollingThreadActive:
             # only do something if there are requests
             if self._retrieve_current_number_of_requests() != 0:  
@@ -358,7 +434,16 @@ class MySQL_ServerCommunicationManager:
                 command = request_tuple[0]
                 args_list = request_tuple[1]
                 if self.doPerformEnqueue == True:
-                    self.menu_management_system.enqueue_command(command, *args_list)
+                    
+                    # If in manual mode, make sure command isn't in automaticOnlyCommands set
+                    if self.overallSystemStatus.getStatusFieldTupleValueUsingKey(OverallSystem.FieldKeys.OPERATION_MODE) == OverallSystem.OperationModeEnum.MANUAL:
+                        if command not in OverallSystem.automaticOnlyCommands:
+                            self.menu_management_system.enqueue_command(command, *args_list)
+                    # If in auto mode, make sure command isn't in manualOnlyCommands
+                    if self.overallSystemStatus.getStatusFieldTupleValueUsingKey(OverallSystem.FieldKeys.OPERATION_MODE) == OverallSystem.OperationModeEnum.AUTO:
+                        if command not in OverallSystem.manualOnlyCommands:
+                            self.menu_management_system.enqueue_command(command, *args_list)
+
                 print(f"Retrieved Command: {command} with args: {args_list}")
             else:
                 print("Request Table is empty")
@@ -529,7 +614,11 @@ class MySQL_ServerCommunicationManager:
         
 if __name__ == "__main__":
     import MySQL_CommunicationManagerTestCases
-    MySQL_CommunicationManagerTestCases.test_inserting_into_ec_and_pH_data_tables()
+    import GPIO_Utility
+    
+    try:
+        MySQL_CommunicationManagerTestCases.test_inserting_into_overallSystemActivity()
+    except KeyboardInterrupt as e:
+        GPIO_Utility.gpioCleanup()
     
     exit()
-    
