@@ -29,7 +29,7 @@ def store_image(image_path):
             )
             cursor = conn.cursor()
 
-            query = "INSERT INTO image_data (jpeg_bits) VALUES (%s)"
+            query = "INSERT INTO images (jpeg_bits) VALUES (%s)"
             cursor.execute(query, (img_data,))
             conn.commit()
             print("Image stored successfully!")
@@ -56,7 +56,7 @@ def retrieve_image(image_id, output_path):
             )
             cursor = conn.cursor()
 
-            query = "SELECT jpeg_bits FROM image_data WHERE id = %s"
+            query = "SELECT jpeg_bits FROM images WHERE id = %s"
             cursor.execute(query, (image_id,))
             result = cursor.fetchone()
 
@@ -73,5 +73,6 @@ def retrieve_image(image_id, output_path):
         print(f"Error retrieving image: {e}")
 
 if __name__ == "__main__":
-    store_image("test_image.jpg") 
-    retrieve_image(1, "output_image.jpg")
+    import convertImageTestCases
+    
+    convertImageTestCases.test_insert_one_and_retrieve()
