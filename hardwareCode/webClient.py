@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template, redirect, url_for, send_file
+from flask import Flask, jsonify, request, render_template, redirect, url_for, send_file, send_from_directory
 from Status import Status
 import random
 from CircularBuffer import CircularBuffer
@@ -18,6 +18,7 @@ from MYSQL import (
     retrieve_most_recent_pHDownPump,
     retrieve_most_recent_baseA_Pump,
     retrieve_most_recent_baseB_Pump,
+    retrieve_image_bits,
     ##START OF TEST CODE##
     retrieve_all_pH_values,
     retrieve_all_ec_values
@@ -27,6 +28,8 @@ from MYSQL import (
 import matplotlib
 from matplotlib import pyplot as plt
 import os
+import io
+from PIL import Image
 
 matplotlib.use('Agg')  # Set backend to Agg for non-GUI rendering
 
@@ -62,6 +65,14 @@ def generate_plot(buffer, filename, label):
     plt.close()
     return filepath
 
+def save_jpeg_from_bytes(binary_data, output_filename="restored_image.jpg"):
+    image = Image.open(io.BytesIO(binary_data))  # Convert binary to image
+
+    image.save(output_filename, "JPEG")  # Save it as a JPEG file
+    print(f"✅ Image saved as {output_filename}")
+
+
+
 app = Flask(__name__)
 
 # Create a global instance of the Status class
@@ -70,9 +81,11 @@ system_status = Status(topLevel=True, debugMode=False)
 # Specify the directory path for hardwareCode and plotImages
 hardware_code_dir = os.path.join(os.getcwd(), "hardwareCode")
 plot_images_dir = os.path.join(hardware_code_dir, "plotImages")
+IMAGE_SAVE_PATH = "static/captured_images"
 
 # Ensure the plotImages directory exists within hardwareCode
 os.makedirs(plot_images_dir, exist_ok=True)
+os.makedirs(IMAGE_SAVE_PATH, exist_ok=True)
 
 # Initialize the circular buffers for pH and EC sensor readings
 ph_buffer = CircularBuffer(size=50)  # Stores the latest 50 pH readings
@@ -197,6 +210,8 @@ def submit_form():
             insertRequest("[PumpWater]-manual_turn_on_pump", [])
         elif pump_action == 'off':
             insertRequest("[PumpWater]-manual_turn_off_pump", [])
+        elif pump_action == 'dont_change':
+            pass
         else:
             print("Invalid Request")
 
@@ -205,6 +220,8 @@ def submit_form():
             insertRequest("[GrowLight]-turn_on", [])
         elif grow_light == 'off':
             insertRequest("[GrowLight]-turn_off", [])
+        elif grow_light == 'dont_change':
+            pass
         else:
             print("Invalid Request")
 
@@ -213,6 +230,8 @@ def submit_form():
             insertRequest("[pHUpPump]-manual_turn_on_pump", [])
         elif pHUpPump == 'off':
             insertRequest("[pHUpPump]-manual_turn_off_pump", [])
+        elif pHUpPump == 'dont_change':
+            pass
         else:
             print("Invalid Request")
 
@@ -220,6 +239,8 @@ def submit_form():
             insertRequest("[pHDownPump]-manual_turn_on_pump", [])
         elif pHDownPump == 'off':
             insertRequest("[pHDownPump]-manual_turn_off_pump", [])
+        elif pHDownPump == 'dont_change':
+            pass
         else:
             print("Invalid Request")
 
@@ -227,6 +248,8 @@ def submit_form():
             insertRequest("[baseA]-manual_turn_on_pump", [])
         elif baseA_Pump == 'off':
             insertRequest("[baseA]-manual_turn_off_pump", [])
+        elif baseA_Pump == 'dont_change':
+            pass
         else:
             print("Invalid Request")
 
@@ -234,6 +257,8 @@ def submit_form():
             insertRequest("[baseB]-manual_turn_on_pump", [])
         elif baseB_Pump == 'off':
             insertRequest("[baseB]-manual_turn_off_pump", [])
+        elif baseB_Pump == 'dont_change':
+            pass
         else:
             print("Invalid Request")
 
@@ -310,6 +335,7 @@ def set_mode():
 
 @app.route('/camera_motion', methods=['GET'])
 def camera_motion():
+    print("qwer")
     return render_template('camera_motion.html')
 
 @app.route('/camera_move', methods=['POST'])
@@ -335,6 +361,29 @@ def set_manual_mode():
     insertRequest("[Special]-switch_to_manual", [])
     return '', 204
 
+@app.route('/camera_image', methods=['GET'])
+def camera_image():
+
+    return render_template('camera_image.html')
+
+@app.route('/camera_feed', methods=['GET'])
+def camera_feed():
+    image_bits = retrieve_image_bits()
+
+
+    # Get the absolute path of the directory where the Flask script is located
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+    # Define the directory relative to the Flask script
+    IMAGE_SAVE_PATH = os.path.join(BASE_DIR, "static", "captured_images")
+
+    # Ensure the directory exists
+    os.makedirs(IMAGE_SAVE_PATH, exist_ok=True)
+
+    image = Image.open(io.BytesIO(image_bits))
+    image_path = os.path.join(IMAGE_SAVE_PATH, "latest.jpg")
+    image.save(image_path)
+    return jsonify({"message": "Image updated successfully"}), 200
 
 # Start the Flask server
 if __name__ == '__main__':
