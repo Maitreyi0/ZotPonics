@@ -1,5 +1,3 @@
-#!/usr/bin/env python3          
-                                
 import signal                   
 import sys
 import RPi.GPIO as GPIO
